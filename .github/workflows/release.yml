@@ -1023,12 +1023,29 @@ jobs:
 
           curl -sL https://sentry.io/get-cli/ | bash
 
+          # get-cli installs to /usr/local/bin, which is on PATH on the macOS
+          # runner but NOT on the Windows git-bash runner (the upload there
+          # failed with "sentry-cli: command not found", exit 127). Resolve the
+          # binary explicitly so it works regardless of PATH or the .exe suffix
+          # the Windows download lands with.
+          SENTRY_CLI=$(command -v sentry-cli || true)
+          if [ -z "$SENTRY_CLI" ]; then
+            for candidate in /usr/local/bin/sentry-cli /usr/local/bin/sentry-cli.exe; do
+              if [ -x "$candidate" ]; then SENTRY_CLI="$candidate"; break; fi
+            done
+          fi
+          if [ -z "$SENTRY_CLI" ]; then
+            echo "::error::sentry-cli not found after install" >&2
+            exit 1
+          fi
+          "$SENTRY_CLI" --version
+
           echo "=== Upload ${{ matrix.target }} debug symbols ==="
           # MSVC emits the PDB next to the .exe; Rust converts the binary's
           # `-` to `_` for the PDB stem (houston-engine.exe → houston_engine.pdb).
           # Upload both — Sentry needs the PDB for symbolication but indexes
           # by the .exe's debug-id.
-          sentry-cli debug-files upload \
+          "$SENTRY_CLI" debug-files upload \
             "target/${{ matrix.target }}/release/houston-engine.exe" \
             "target/${{ matrix.target }}/release/houston_engine.pdb"
 
