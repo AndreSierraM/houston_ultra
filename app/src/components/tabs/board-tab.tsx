@@ -28,6 +28,7 @@ import { formatVisibleMessageText } from "../../lib/queued-chat";
 import { buildAttachmentPrompt } from "../../lib/attachment-message";
 import { queryKeys } from "../../lib/query-keys";
 import { analytics } from "../../lib/analytics";
+import { classifyFileKind } from "../../lib/file-kind";
 import type { TabProps } from "../../lib/types";
 import { useDetailPanelContainer } from "../shell/detail-panel-context";
 import { HoustonThinkingIndicator } from "../shell/experience-card";
@@ -511,6 +512,10 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
       // createMission bypassed useCreateActivity so invalidate manually.
       queryClient.invalidateQueries({ queryKey: queryKeys.activity(path) });
       analytics.track("mission_created", { agent_mode: agentMode ?? "default" });
+      analytics.track("chat_message_sent");
+      for (const f of files) {
+        analytics.track("file_attached", { file_kind: classifyFileKind(f) });
+      }
       return conversationId;
     },
     [path, agent.id, agent.name, agent.color, pushFeedItem, pendingAgentMode, agentModes, effectiveProvider, effectiveModel, queryClient, t],
@@ -555,6 +560,10 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
         });
         pushFeedItem(path, sessionKey, { feed_type: "user_message", data: prompt });
         setLoading((prev) => ({ ...prev, [sessionKey]: true }));
+        analytics.track("chat_message_sent");
+        for (const f of files) {
+          analytics.track("file_attached", { file_kind: classifyFileKind(f) });
+        }
       } catch (err) {
         setLoading((prev) => ({ ...prev, [sessionKey]: false }));
         pushFeedItem(path, sessionKey, {
