@@ -19,16 +19,17 @@ cloudhouston.blyxlabs.dev → IP del VPS
 | Source | GitHub `AndreSierraM/houston_ultra` |
 | Branch | la que tenga cloud (p. ej. `main` o tu worktree) |
 | Compose file | `cloud/control-plane/deploy/docker-compose.dokploy.yml` |
-| Env file | pegar contenido de `profiles/cloudhouston.blyxlabs.dev.env` (sin comentarios APP) |
+| Env file | variables desde `profiles/cloudhouston.blyxlabs.dev.env.example` (rellenar en Dokploy, **no** commitear) |
 
-Variables mínimas en Dokploy:
+Variables mínimas en Dokploy (valores reales solo en el panel del VPS, nunca en git):
 
 ```env
-POSTGRES_PASSWORD=blyx-cloud-pg-dev-8f2a
+SUPABASE_DB_PASSWORD=<desde dashboard Supabase>
+DATABASE_URL=postgresql://postgres.<project-ref>:<password>@<pool-host>:5432/postgres?sslmode=require
 HOUSTON_CLOUD_AUTH=local
-HOUSTON_CLOUD_TOKEN=hst_ab9e56df2ca07e563d8d71f55850d157e08fe447ce7fcc19f84339c77de1aced
+HOUSTON_CLOUD_TOKEN=hst_<openssl rand -hex 32>
 HOUSTON_CLOUD_LOCAL_USER_ID=00000000-0000-0000-0000-000000000001
-HOUSTON_CLOUD_LOCAL_EMAIL=andre@blyxlabs.dev
+HOUSTON_CLOUD_LOCAL_EMAIL=you@example.com
 HOUSTON_CLOUD_DOMAIN=cloudhouston.blyxlabs.dev
 HOUSTON_ENGINE_IMAGE=houston/engine:dev
 HOUSTON_CLOUD_CORS_ORIGINS=*
@@ -77,7 +78,7 @@ docker exec -it <postgres-container> psql -U houston -d houston_cloud -c \
 ```bash
 curl -fsS https://cloudhouston.blyxlabs.dev/health
 
-export HOUSTON_CLOUD_TOKEN=hst_ab9e56df2ca07e563d8d71f55850d157e08fe447ce7fcc19f84339c77de1aced
+export HOUSTON_CLOUD_TOKEN="<tu token del panel Dokploy>"
 curl -fsS -H "Authorization: Bearer $HOUSTON_CLOUD_TOKEN" \
   https://cloudhouston.blyxlabs.dev/v1/cloud/me
 ```
@@ -87,15 +88,15 @@ O desde el repo:
 ```bash
 cd cloud/control-plane/deploy
 export HOUSTON_CLOUD_BASE=https://cloudhouston.blyxlabs.dev
-export HOUSTON_CLOUD_TOKEN=hst_ab9e56df2ca07e563d8d71f55850d157e08fe447ce7fcc19f84339c77de1aced
+export HOUSTON_CLOUD_TOKEN="<tu token>"
 ./smoke.sh
 ```
 
-## 8. App en tu Mac (`app/.env.local`)
+## 8. App en tu Mac (`app/.env.local`, gitignored)
 
 ```env
 VITE_HOUSTON_CLOUD_BASE=https://cloudhouston.blyxlabs.dev
-VITE_HOUSTON_CLOUD_TOKEN=hst_ab9e56df2ca07e563d8d71f55850d157e08fe447ce7fcc19f84339c77de1aced
+VITE_HOUSTON_CLOUD_TOKEN=<mismo HOUSTON_CLOUD_TOKEN del servidor>
 ```
 
 ```bash

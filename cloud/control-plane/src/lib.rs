@@ -7,6 +7,8 @@ pub mod auth;
 pub mod config;
 pub mod db;
 pub mod docker_runtime;
+pub mod k8s_runtime;
+pub mod k8s_specs;
 pub mod engine_provision;
 pub mod entitlements;
 pub mod error;

@@ -4,6 +4,11 @@ dist/
 .env
 .env.local
 .env.*.local
+
+# Houston Cloud — repo público: nunca commitear credenciales
+cloud/control-plane/deploy/.env
+cloud/control-plane/deploy/profiles/*.env
+!cloud/control-plane/deploy/profiles/*.env.example
 *.tsbuildinfo
 target/
 .agents/
@@ -22,4 +27,3 @@ app/src-tauri/resources/bin/
 
 # Houston engine sidecar staged by build.rs (built from source in CI, not committed)
 app/src-tauri/binaries/
-cloudhouston.blyxlabs.dev.env

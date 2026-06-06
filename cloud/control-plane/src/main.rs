@@ -47,12 +47,17 @@ async fn main() -> anyhow::Result<()> {
         db: db.clone(),
     };
 
-    let runtime = AppState::docker_runtime(cfg.engine_image.clone(), cfg.docker_socket.clone());
+    let runtime = AppState::runtime_for(
+        cfg.runtime,
+        cfg.engine_image.clone(),
+        cfg.docker_socket.clone(),
+        cfg.kubectl_bin.clone(),
+    );
     let state = AppState::new(db, auth, runtime);
     let router = build_router(state);
     let addr: SocketAddr = cfg.bind.parse()?;
     let listener = TcpListener::bind(addr).await?;
-    tracing::info!(%addr, auth_mode = ?cfg.auth_mode, "houston cloud control plane listening");
+    tracing::info!(%addr, auth_mode = ?cfg.auth_mode, runtime = ?cfg.runtime, "houston cloud control plane listening");
     axum::serve(listener, router).await?;
     Ok(())
 }

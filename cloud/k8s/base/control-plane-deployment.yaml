@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: houston-control-plane
+  labels:
+    app: houston-control-plane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: houston-control-plane
+  template:
+    metadata:
+      labels:
+        app: houston-control-plane
+    spec:
+      serviceAccountName: houston-control-plane
+      containers:
+        - name: control-plane
+          image: houston/control-plane:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8788
+              name: http
+          envFrom:
+            - secretRef:
+                name: houston-control-plane-env
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8788
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

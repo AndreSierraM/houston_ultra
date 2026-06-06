@@ -64,20 +64,16 @@ Pasos:
 - Backups diarios de Postgres.
 - Backups diarios de volumes.
 
-## K3s Despues
+## K8s / K3s (implementado)
 
-Cuando Docker funcione:
+Runtime seleccionable con `HOUSTON_CLOUD_RUNTIME=k8s|docker`.
 
-1. Crear `cloud/k8s/base`.
-2. Agregar `k8s_runtime.rs`.
-3. Reemplazar Docker backend por runtime trait.
-4. Namespace por org/workspace.
-5. Deployment por agente activo.
-6. PVC por agente.
-7. Secret por token interno.
-8. Service interno por agente.
-9. NetworkPolicy default deny.
-10. ResourceQuota y LimitRange.
+1. Manifests: `cloud/k8s/base` + overlay `cloud/k8s/overlays/blyxlabs`.
+2. Backend: `k8s_runtime.rs` + `k8s_specs.rs` (namespace por org, Deployment/PVC/Secret/Service por agente).
+3. Imagen control-plane: `cloud/control-plane/Dockerfile.k8s` (incluye kubectl).
+4. Operacion VPS: copiar prompt de `cloud/k8s/PROMPT-SERVER.md` en agente IA del servidor.
+
+Pendiente endurecimiento: NetworkPolicy default deny, ResourceQuota/LimitRange por namespace org.
 
 La UI no cambia. El contrato cloud agent sigue igual.
 

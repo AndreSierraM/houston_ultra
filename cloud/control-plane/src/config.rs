@@ -3,6 +3,13 @@
 use std::env;
 use uuid::Uuid;
 
+/// Where cloud agent engines are provisioned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeKind {
+    Docker,
+    K8s,
+}
+
 /// How incoming bearer tokens are validated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthMode {
@@ -24,7 +31,9 @@ pub struct Config {
     pub local_user_id: Uuid,
     pub local_email: Option<String>,
     pub engine_image: String,
+    pub runtime: RuntimeKind,
     pub docker_socket: String,
+    pub kubectl_bin: String,
 }
 
 impl Config {
@@ -68,9 +77,23 @@ impl Config {
                 .filter(|s| !s.is_empty()),
             engine_image: env::var("HOUSTON_ENGINE_IMAGE")
                 .unwrap_or_else(|_| "houston/engine:dev".into()),
+            runtime: parse_runtime_kind()?,
             docker_socket: env::var("DOCKER_HOST")
                 .unwrap_or_else(|_| "unix:///var/run/docker.sock".into()),
+            kubectl_bin: env::var("KUBECTL_BIN").unwrap_or_else(|_| "kubectl".into()),
         })
+    }
+}
+
+fn parse_runtime_kind() -> anyhow::Result<RuntimeKind> {
+    match env::var("HOUSTON_CLOUD_RUNTIME")
+        .unwrap_or_else(|_| "docker".into())
+        .to_lowercase()
+        .as_str()
+    {
+        "docker" => Ok(RuntimeKind::Docker),
+        "k8s" | "kubernetes" | "k3s" => Ok(RuntimeKind::K8s),
+        other => anyhow::bail!("HOUSTON_CLOUD_RUNTIME must be 'docker' or 'k8s', got '{other}'"),
     }
 }
 
