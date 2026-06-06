@@ -56,11 +56,11 @@ export function CloudShareWizard({ agent, open, onClose }: Props) {
         variant: "error",
         title: t("cloudShare.errors.loadFailed"),
       });
-      onClose();
+      setShares([]);
     } finally {
       setLoading(false);
     }
-  }, [agent.id, addToast, onClose, t]);
+  }, [agent.id, addToast, t]);
 
   useEffect(() => {
     if (!open) {

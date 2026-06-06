@@ -30,6 +30,8 @@ interface NamingStepProps {
   showLinkProject?: boolean;
   runtimeMode: AgentRuntimeMode;
   onRuntimeModeChange: (mode: AgentRuntimeMode) => void;
+  syncProviderCredentials: boolean;
+  onSyncProviderCredentialsChange: (value: boolean) => void;
   onNameChange: (value: string) => void;
   onColorChange: (value: string) => void;
   onExistingPathChange: (path: string | null) => void;
@@ -52,6 +54,8 @@ export function NamingStep({
   showLinkProject,
   runtimeMode,
   onRuntimeModeChange,
+  syncProviderCredentials,
+  onSyncProviderCredentialsChange,
   onProviderChange,
   onBack,
   onSubmit,
@@ -132,7 +136,12 @@ export function NamingStep({
               className="text-center rounded-full"
             />
 
-            <RuntimeModeSelector value={runtimeMode} onChange={onRuntimeModeChange} />
+            <RuntimeModeSelector
+              value={runtimeMode}
+              onChange={onRuntimeModeChange}
+              syncConnection={syncProviderCredentials}
+              onSyncConnectionChange={onSyncProviderCredentialsChange}
+            />
 
             {/* Link existing project — opt-in via agent features */}
             {showLinkProject && (

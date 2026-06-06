@@ -18,6 +18,7 @@ pub struct Entitlement {
 }
 
 pub async fn get_entitlement(db: &Db, principal: &Principal) -> ApiResult<Entitlement> {
+    db.ensure_org_entitlements(principal.org_id).await?;
     sqlx::query_as::<_, Entitlement>(
         "SELECT org_id, status, max_cloud_agents, max_storage_gb, max_members
          FROM cloud_entitlements WHERE org_id = $1",

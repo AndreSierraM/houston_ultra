@@ -3,6 +3,7 @@
 pub mod agent_access;
 pub mod agents;
 pub mod audit;
+pub mod bootstrap_bundle;
 pub mod auth;
 pub mod config;
 pub mod db;

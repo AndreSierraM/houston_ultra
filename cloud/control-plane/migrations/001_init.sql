@@ -70,3 +70,20 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 
 CREATE INDEX IF NOT EXISTS audit_events_agent_idx ON audit_events(agent_id, created_at DESC);
+
+-- Local k3d principal (HOUSTON_CLOUD_LOCAL_USER_ID default). Idempotent.
+INSERT INTO organizations (id, name)
+VALUES ('00000000-0000-0000-0000-000000000010', 'dev@local.test''s org')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO organization_members (org_id, user_id, role)
+VALUES (
+    '00000000-0000-0000-0000-000000000010',
+    '00000000-0000-0000-0000-000000000001',
+    'owner'
+)
+ON CONFLICT (org_id, user_id) DO NOTHING;
+
+INSERT INTO cloud_entitlements (org_id, status, max_cloud_agents, max_storage_gb, max_members)
+VALUES ('00000000-0000-0000-0000-000000000010', 'active', 4, 10, 5)
+ON CONFLICT (org_id) DO NOTHING;

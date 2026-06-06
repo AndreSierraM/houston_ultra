@@ -22,7 +22,7 @@ Cada agente cloud corre con:
 
 ```text
 container: hou-cloud-agent-{agent_id}
-volume: hou-cloud-agent-{agent_id}-home
+volume: hou-cloud-agent-{agent_id}-home mounted at /data
 network: hou-org-{org_id}
 restart: unless-stopped
 ```
@@ -37,6 +37,10 @@ HOUSTON_BIND=0.0.0.0:7777
 HOUSTON_BIND_ALL=1
 HOUSTON_NO_PARENT_WATCHDOG=1
 ```
+
+El volumen debe cubrir `/data` completo, no solo `/data/.houston`. Provider homes
+como `.codex`, `.claude`, `.gemini`, `.composio` y el workspace bajo
+`/data/workspace` deben persistir despues de restart/recreate.
 
 ## VPS Provision
 

@@ -10,7 +10,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use houston_engine_core::provider::{self, ProviderStatus};
+use houston_engine_core::provider::{
+    self, CredentialExportRequest, CredentialExportResponse, CredentialImportRequest,
+    CredentialImportResponse, CredentialImportSessionResponse, ProviderStatus,
+};
 use std::sync::Arc;
 
 pub fn router() -> Router<Arc<ServerState>> {
@@ -75,6 +78,18 @@ pub fn router() -> Router<Arc<ServerState>> {
         .route(
             "/providers/openai/credentials",
             post(openai_set_credentials),
+        )
+        .route(
+            "/providers/:name/credential-import/session",
+            post(credential_import_session),
+        )
+        .route(
+            "/providers/:name/credential-export",
+            post(credential_export),
+        )
+        .route(
+            "/providers/:name/credential-import",
+            post(credential_import),
         )
 }
 
@@ -209,5 +224,30 @@ async fn anthropic_set_credentials(
 ) -> Result<(), ApiError> {
     provider::set_anthropic_api_key(&body.api_key).await?;
     Ok(())
+}
+
+async fn credential_import_session(
+    State(_st): State<Arc<ServerState>>,
+    Path(name): Path<String>,
+) -> Result<Json<CredentialImportSessionResponse>, ApiError> {
+    Ok(Json(provider::start_import_session(&name)?))
+}
+
+async fn credential_export(
+    State(_st): State<Arc<ServerState>>,
+    Path(name): Path<String>,
+    Json(body): Json<CredentialExportRequest>,
+) -> Result<Json<CredentialExportResponse>, ApiError> {
+    Ok(Json(provider::export_credentials(&name, &body).await?))
+}
+
+async fn credential_import(
+    State(st): State<Arc<ServerState>>,
+    Path(name): Path<String>,
+    Json(body): Json<CredentialImportRequest>,
+) -> Result<Json<CredentialImportResponse>, ApiError> {
+    Ok(Json(
+        provider::import_credentials(&name, &body, st.engine.events.clone()).await?,
+    ))
 }
 

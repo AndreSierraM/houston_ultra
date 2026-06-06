@@ -1,17 +1,13 @@
 //! Runtime backend trait — Docker now, K3s later.
 
+use crate::bootstrap_bundle::ResolvedBootstrap;
 use async_trait::async_trait;
 use serde::Serialize;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct AgentProvisionConfig {
-    pub name: String,
-    pub config_id: String,
-    pub color: Option<String>,
-    pub claude_md: Option<String>,
-    pub provider: Option<String>,
-    pub model: Option<String>,
+    pub bootstrap: ResolvedBootstrap,
 }
 
 #[derive(Debug, Clone, Serialize)]

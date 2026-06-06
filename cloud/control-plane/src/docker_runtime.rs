@@ -1,7 +1,7 @@
 //! Docker runtime — one private houston-engine container per cloud agent.
 
 use crate::auth::hash_token;
-use crate::engine_provision::{self, AgentBootstrapConfig};
+use crate::engine_provision;
 use crate::runtime::{AgentProvisionConfig, RuntimeBackend, RuntimeRow};
 use async_trait::async_trait;
 use rand::RngCore;
@@ -78,8 +78,9 @@ impl RuntimeBackend for DockerRuntime {
         let _ = self.docker(&["volume", "create", &volume]).await?;
         self.docker(&[
             "run", "-d", "--name", &container, "--restart", "unless-stopped",
-            "--network", &network, "-v", &format!("{volume}:/data/.houston"),
-            "-e", "HOUSTON_HOME=/data/.houston", "-e", "HOUSTON_DOCS=/data/workspace",
+            "--network", &network, "-v", &format!("{volume}:/data"),
+            "-e", "HOME=/data", "-e", "HOUSTON_HOME=/data/.houston",
+            "-e", "HOUSTON_DOCS=/data/workspace",
             "-e", &format!("HOUSTON_ENGINE_TOKEN={token}"),
             "-e", "HOUSTON_BIND=0.0.0.0:7777", "-e", "HOUSTON_BIND_ALL=1",
             "-e", "HOUSTON_NO_PARENT_WATCHDOG=1", &self.engine_image,
@@ -88,14 +89,7 @@ impl RuntimeBackend for DockerRuntime {
         let folder_path = match engine_provision::bootstrap_engine_agent(
             &internal_url,
             &token,
-            &AgentBootstrapConfig {
-                name: agent.name.clone(),
-                config_id: agent.config_id.clone(),
-                color: agent.color.clone(),
-                claude_md: agent.claude_md.clone(),
-                provider: agent.provider.clone(),
-                model: agent.model.clone(),
-            },
+            &agent.bootstrap,
         )
         .await
         {

@@ -80,6 +80,7 @@ metadata:
     houston.ai/agent-id: "{agent_id}"
 spec:
   replicas: 1
+  minReadySeconds: 5
   selector:
     matchLabels:
       app: {deploy}
@@ -97,6 +98,8 @@ spec:
             - containerPort: 7777
               name: http
           env:
+            - name: HOME
+              value: /data
             - name: HOUSTON_HOME
               value: /data/.houston
             - name: HOUSTON_DOCS
@@ -107,6 +110,8 @@ spec:
               value: "1"
             - name: HOUSTON_NO_PARENT_WATCHDOG
               value: "1"
+            - name: HOUSTON_TUNNEL_URL
+              value: http://127.0.0.1:1
             - name: HOUSTON_ENGINE_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -114,8 +119,16 @@ spec:
                   key: HOUSTON_ENGINE_TOKEN
           volumeMounts:
             - name: home
-              mountPath: /data/.houston
-              subPath: houston
+              mountPath: /data
+          startupProbe:
+            httpGet:
+              path: /v1/health
+              port: 7777
+              httpHeaders:
+                - name: Authorization
+                  value: Bearer {engine_token}
+            periodSeconds: 2
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /v1/health
@@ -123,9 +136,9 @@ spec:
               httpHeaders:
                 - name: Authorization
                   value: Bearer {engine_token}
-            initialDelaySeconds: 5
             periodSeconds: 5
-            failureThreshold: 12
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: 250m
@@ -168,5 +181,27 @@ mod tests {
         let url = internal_service_url(id, org);
         assert!(url.contains("hou-cloud-agent-"));
         assert!(url.contains(".svc.cluster.local:7777"));
+    }
+
+    #[test]
+    fn agent_manifest_includes_cloud_boot_tuning() {
+        let id = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let org = Uuid::parse_str("11111111-1111-1111-1111-111111111101").unwrap();
+        let yaml = agent_manifests(id, org, "houston/engine:dev", "abc123");
+        assert!(yaml.contains("HOUSTON_TUNNEL_URL"));
+        assert!(yaml.contains("http://127.0.0.1:1"));
+        assert!(yaml.contains("startupProbe:"));
+        assert!(yaml.contains("Authorization"));
+        assert!(yaml.contains("Bearer abc123"));
+    }
+
+    #[test]
+    fn agent_manifest_mounts_full_data_home() {
+        let id = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let org = Uuid::parse_str("11111111-1111-1111-1111-111111111101").unwrap();
+        let yaml = agent_manifests(id, org, "houston/engine:dev", "tok");
+        assert!(yaml.contains("name: HOME\n              value: /data"));
+        assert!(yaml.contains("mountPath: /data\n"));
+        assert!(!yaml.contains("subPath:"));
     }
 }

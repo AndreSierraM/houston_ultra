@@ -14,6 +14,8 @@ import type {
   Activity,
   ActivityUpdate,
   Agent,
+  AgentBootstrapBundle,
+  BuildAgentBootstrapRequest,
   AttachmentManifest,
   AttachmentUploadResult,
   ChatHistoryEntry,
@@ -28,6 +30,11 @@ import type {
   CreateAgent,
   CreateAgentResult,
   CreateAttachmentUploadsResponse,
+  CredentialExportRequest,
+  CredentialExportResponse,
+  CredentialImportRequest,
+  CredentialImportResponse,
+  CredentialImportSessionResponse,
   CreateSkillRequest,
   CreateWorkspace,
   CreateWorktreeRequest,
@@ -543,6 +550,45 @@ export class HoustonClient {
   setAnthropicApiKey(apiKey: string): Promise<void> {
     return this.request("POST", "/providers/anthropic/credentials", { apiKey });
   }
+
+  /** Cloud engine: create a one-time import session (public key + expiry). */
+  createProviderCredentialImportSession(
+    name: string,
+  ): Promise<CredentialImportSessionResponse> {
+    return this.request(
+      "POST",
+      `/providers/${this.seg(name)}/credential-import/session`,
+    );
+  }
+
+  /** Local engine: read allowlisted credential files and encrypt for session. */
+  exportProviderCredentials(
+    name: string,
+    req: CredentialExportRequest,
+  ): Promise<CredentialExportResponse> {
+    return this.request(
+      "POST",
+      `/providers/${this.seg(name)}/credential-export`,
+      req,
+    );
+  }
+
+  /** Cloud engine: decrypt bundle, write files, probe provider status. */
+  importProviderCredentials(
+    name: string,
+    req: CredentialImportRequest,
+  ): Promise<CredentialImportResponse> {
+    return this.request(
+      "POST",
+      `/providers/${this.seg(name)}/credential-import`,
+      req,
+    );
+  }
+
+  buildAgentBootstrapBundle(body: BuildAgentBootstrapRequest): Promise<AgentBootstrapBundle> {
+    return this.request("POST", "/agents/bootstrap-bundle", body);
+  }
+
   // "Sign in with Google" for Gemini goes through the standard
   // `providerLogin("gemini")` call — the engine detects the gemini id
   // and delegates to gemini-cli's own OAuth via the ACP `authenticate`

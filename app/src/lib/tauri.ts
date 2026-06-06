@@ -31,7 +31,7 @@ import type {
 } from "@houston-ai/engine-client";
 import { getEngine } from "./engine";
 import { agentFromPath, currentAgent } from "./agent-lookup";
-import { resolveEngine } from "./engine-for-agent";
+import { resolveEngine, resolveEngineForPath } from "./engine-for-agent";
 import { isCloudAgent } from "./runtime-router";
 import { osPickDirectory } from "./os-bridge";
 import { logger } from "./logger";
@@ -223,7 +223,7 @@ export const tauriChat = {
         opts?.providerOverride,
         opts?.modelOverride,
       );
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       const res = await engine.startSession(agentPath, {
         sessionKey,
         prompt,
@@ -238,17 +238,17 @@ export const tauriChat = {
     }),
   startOnboarding: (agentPath: string, sessionKey: string) =>
     call<void>("start_onboarding_session", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.startOnboarding(agentPath, sessionKey);
     }),
   stop: (agentPath: string, sessionKey: string) =>
     call<void>("stop_session", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.cancelSession(agentPath, sessionKey);
     }),
   loadHistory: (agentPath: string, sessionKey: string) =>
     call<Array<{ feed_type: string; data: unknown }>>("load_chat_history", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return engine.loadChatHistory(agentPath, sessionKey);
     }),
   summarize: (message: string) =>
@@ -275,22 +275,22 @@ export const tauriAttachments = {
 export const tauriAgent = {
   readFile: (agentPath: string, relPath: string) =>
     call<string>("read_agent_file", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return engine.readAgentFile(agentPath, relPath);
     }),
   writeFile: (agentPath: string, relPath: string, content: string) =>
     call<void>("write_agent_file", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.writeAgentFile(agentPath, relPath, content);
     }),
   seedSchemas: (agentPath: string) =>
     call<void>("seed_agent_schemas", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.seedAgentSchemas(agentPath);
     }),
   migrateFiles: (agentPath: string) =>
     call<void>("migrate_agent_files", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.migrateAgentFiles(agentPath);
     }),
 };
@@ -300,7 +300,7 @@ export const tauriAgent = {
 export const tauriSkills = {
   list: (agentPath: string) =>
     call<SkillSummary[]>("list_skills", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return (await engine.listSkills(agentPath)).map((s) => ({
         name: s.name,
         description: s.description,
@@ -326,29 +326,29 @@ export const tauriSkills = {
     }),
   load: (agentPath: string, name: string) =>
     call<SkillDetail>("load_skill", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return engine.loadSkill(agentPath, name);
     }),
   create: (agentPath: string, name: string, description: string, content: string) =>
     call<void>("create_skill", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.createSkill({ workspacePath: agentPath, name, description, content });
     }),
   delete: (agentPath: string, name: string) =>
     call<void>("delete_skill", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.deleteSkill(agentPath, name);
     }),
   save: (agentPath: string, name: string, content: string) =>
     call<void>("save_skill", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.saveSkill(name, { workspacePath: agentPath, content });
     }),
   listFromRepo: (source: string) =>
     call<RepoSkill[]>("list_skills_from_repo", () => getEngine().listSkillsFromRepo(source)),
   installFromRepo: (agentPath: string, source: string, skills: RepoSkill[]) =>
     call<string[]>("install_skills_from_repo", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return engine.installSkillsFromRepo({
         workspacePath: agentPath,
         source,
@@ -392,7 +392,7 @@ export const tauriSkills = {
     call<string>(
       "install_community_skill",
       async () => {
-        const engine = await resolveEngine(agentFromPath(agentPath));
+        const engine = await resolveEngineForPath(agentPath);
         return engine.installCommunitySkill(
           {
             workspacePath: agentPath,
@@ -507,7 +507,7 @@ import { osOpenFile, osRevealAgent, osRevealFile } from "./os-bridge";
 export const tauriFiles = {
   list: (agentPath: string) =>
     call<FileEntry[]>("list_project_files", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return (await engine.listProjectFiles(agentPath)).map((f) => ({
         path: f.path,
         name: f.name,
@@ -523,17 +523,17 @@ export const tauriFiles = {
     osRevealFile(agentPath, relativePath),
   delete: (agentPath: string, relativePath: string) =>
     call<void>("delete_file", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.deleteFile(agentPath, relativePath);
     }),
   rename: (agentPath: string, relativePath: string, newName: string) =>
     call<void>("rename_file", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.renameFile(agentPath, relativePath, newName);
     }),
   createFolder: (agentPath: string, name: string) =>
     call<void>("create_agent_folder", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.createFolder(agentPath, name);
     }),
   revealAgent: (agentPath: string) => osRevealAgent(agentPath),
@@ -589,7 +589,7 @@ interface RawConversation {
 export const tauriConversations = {
   list: (agentPath: string) =>
     call<RawConversation[]>("list_conversations", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return (await engine.listConversations(agentPath)).map(conversationToRaw);
     }),
   listAll: (agentPaths: string[]) =>
@@ -599,7 +599,7 @@ export const tauriConversations = {
         string[]
       >();
       for (const agentPath of agentPaths) {
-        const engine = await resolveEngine(agentFromPath(agentPath));
+        const engine = await resolveEngineForPath(agentPath);
         const paths = groups.get(engine);
         if (paths) {
           paths.push(agentPath);
@@ -647,12 +647,12 @@ import type {
 export const tauriRoutines = {
   list: (agentPath: string) =>
     call("list_routines", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return engine.listRoutines(agentPath);
     }),
   create: (agentPath: string, input: EngineNewRoutine) =>
     call("create_routine", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return engine.createRoutine(agentPath, input);
     }),
   update: (
@@ -661,42 +661,42 @@ export const tauriRoutines = {
     updates: EngineRoutineUpdate,
   ) =>
     call("update_routine", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return engine.updateRoutine(agentPath, routineId, updates);
     }),
   delete: (agentPath: string, routineId: string) =>
     call<void>("delete_routine", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.deleteRoutine(agentPath, routineId);
     }),
   listRuns: (agentPath: string, routineId?: string) =>
     call("list_routine_runs", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return engine.listRoutineRuns(agentPath, routineId);
     }),
   runNow: (agentPath: string, routineId: string) =>
     call<void>("run_routine_now", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.runRoutineNow(agentPath, routineId);
     }),
   cancelRun: (agentPath: string, routineId: string, runId: string) =>
     call("cancel_routine_run", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       return engine.cancelRoutineRun(agentPath, routineId, runId);
     }),
   startScheduler: (agentPath: string) =>
     call<void>("start_routine_scheduler", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.startRoutineScheduler(agentPath);
     }),
   stopScheduler: (agentPath: string) =>
     call<void>("stop_routine_scheduler", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.stopRoutineScheduler(agentPath);
     }),
   syncScheduler: (agentPath: string) =>
     call<void>("sync_routine_scheduler", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.syncRoutineScheduler(agentPath);
     }),
 };
@@ -1015,7 +1015,7 @@ export const tauriClaude = {
 export const tauriWatcher = {
   start: (agentPath: string) =>
     call<void>("start_agent_watcher", async () => {
-      const engine = await resolveEngine(agentFromPath(agentPath));
+      const engine = await resolveEngineForPath(agentPath);
       await engine.startAgentWatcher(agentPath);
     }),
   stop: (agentPath?: string) =>

@@ -16,6 +16,23 @@ pub fn min_role_for_method(method: &Method) -> &'static str {
     }
 }
 
+/// Minimum share/member role required for a proxied HTTP method and path.
+pub fn min_role_for_proxy_path(tail: &str, method: &Method) -> &'static str {
+    if is_credential_route(tail) {
+        return "admin";
+    }
+    min_role_for_method(method)
+}
+
+/// Provider credential import/export routes carry secrets; admin-only via proxy.
+pub fn is_credential_route(tail: &str) -> bool {
+    let tail = tail.trim_start_matches('/');
+    if !tail.starts_with("v1/providers/") {
+        return false;
+    }
+    tail.contains("/credential-import") || tail.contains("/credential-export")
+}
+
 pub async fn assert_agent_access_for_method(
     db: &Db,
     principal: &Principal,
@@ -23,6 +40,16 @@ pub async fn assert_agent_access_for_method(
     method: &Method,
 ) -> ApiResult<()> {
     assert_agent_access(db, principal, agent_id, min_role_for_method(method)).await
+}
+
+pub async fn assert_agent_access_for_proxy(
+    db: &Db,
+    principal: &Principal,
+    agent_id: Uuid,
+    tail: &str,
+    method: &Method,
+) -> ApiResult<()> {
+    assert_agent_access(db, principal, agent_id, min_role_for_proxy_path(tail, method)).await
 }
 
 pub async fn assert_agent_access(
@@ -136,5 +163,40 @@ mod tests {
         assert!(role_at_least(Some("admin"), "operator"));
         assert!(!role_at_least(Some("viewer"), "operator"));
         assert!(!role_at_least(None, "viewer"));
+    }
+
+    #[test]
+    fn credential_routes_require_admin() {
+        assert_eq!(
+            min_role_for_proxy_path("v1/providers/anthropic/credential-import", &Method::POST),
+            "admin"
+        );
+        assert_eq!(
+            min_role_for_proxy_path("v1/providers/openai/credential-import/session", &Method::POST),
+            "admin"
+        );
+        assert_eq!(
+            min_role_for_proxy_path("v1/providers/openai/credential-export", &Method::POST),
+            "admin"
+        );
+    }
+
+    #[test]
+    fn non_credential_routes_use_method_role() {
+        assert_eq!(
+            min_role_for_proxy_path("v1/sessions", &Method::GET),
+            "viewer"
+        );
+        assert_eq!(
+            min_role_for_proxy_path("v1/sessions", &Method::POST),
+            "operator"
+        );
+    }
+
+    #[test]
+    fn is_credential_route_matches_planned_engine_paths() {
+        assert!(is_credential_route("v1/providers/anthropic/credential-import"));
+        assert!(is_credential_route("/v1/providers/gemini/credential-import/session"));
+        assert!(!is_credential_route("v1/providers/anthropic/status"));
     }
 }

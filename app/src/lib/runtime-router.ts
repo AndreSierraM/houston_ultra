@@ -15,7 +15,9 @@ let cloudWsAgentId: string | null = null;
 let cloudWs: EngineWebSocket | null = null;
 
 export function agentRuntime(agent: Agent): AgentRuntimeMode {
-  return agent.runtime ?? "local";
+  if (agent.runtime === "cloud_24_7") return "cloud_24_7";
+  if (agent.folderPath.startsWith("cloud://")) return "cloud_24_7";
+  return "local";
 }
 
 export function isCloudAgent(agent: Agent): boolean {
@@ -50,7 +52,8 @@ async function cloudSessionToken(): Promise<string> {
   return cloudBearerToken();
 }
 
-function disconnectCloudEngineWs(): void {
+/** Drop the proxied cloud WS (e.g. when switching back to a local agent). */
+export function disconnectCloudEngineWs(): void {
   if (!cloudWs) return;
   try {
     cloudWs.disconnect();

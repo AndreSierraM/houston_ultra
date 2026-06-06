@@ -1,5 +1,4 @@
-import { agentFromPath } from "./agent-lookup";
-import { resolveEngine } from "./engine-for-agent";
+import { resolveEngineForPath } from "./engine-for-agent";
 import { logger } from "./logger";
 import {
   cleanGeneratedTitle,
@@ -25,7 +24,7 @@ export async function refreshMissionTitle({
 }: RefreshMissionTitleOptions): Promise<void> {
   const fallback = fallbackMissionTitle(text);
   try {
-    const engine = await resolveEngine(agentFromPath(agentPath));
+    const engine = await resolveEngineForPath(agentPath);
     const summary = await engine.summarizeActivity(text, {
       agentPath,
       provider,

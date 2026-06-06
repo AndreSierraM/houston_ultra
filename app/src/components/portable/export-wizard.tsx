@@ -88,10 +88,14 @@ export function ExportAgentWizard() {
       setAnonymized(null);
       return;
     }
+    // Cloud agents use CloudShareWizard (control-plane ACL), not portable export.
+    if (!agent || isCloudAgent(agent)) {
+      return;
+    }
     setLoading(true);
     void (async () => {
       try {
-        const p = await getEngine().portablePreview(agent?.folderPath ?? "");
+        const p = await getEngine().portablePreview(agent.folderPath);
         setPreview(p);
         setSelection({
           claudeMd: Boolean(p.claudeMd),
@@ -110,7 +114,7 @@ export function ExportAgentWizard() {
         setLoading(false);
       }
     })();
-  }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agentId, agent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const counts = useMemo(
     () => ({

@@ -1,20 +1,81 @@
 //! Integration-style contract tests for cloud engine proxy paths and RBAC.
 
 use axum::{
-    extract::Request,
+    extract::{OriginalUri, Request},
     http::{Method, StatusCode},
-    routing::get,
+    routing::{any, get},
     Router,
 };
 use houston_cloud_control_plane::agent_access::{
-    assert_agent_access_for_method, min_role_for_method,
+    assert_agent_access_for_method, assert_agent_access_for_proxy, is_credential_route,
+    min_role_for_method, min_role_for_proxy_path,
 };
 use houston_cloud_control_plane::auth::Principal;
 use houston_cloud_control_plane::db::Db;
-use houston_cloud_control_plane::proxy::build_proxy_target;
+use houston_cloud_control_plane::proxy::{build_proxy_target, proxy_tail};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use uuid::Uuid;
+
+#[tokio::test]
+async fn catch_all_proxy_route_extracts_id_and_tail() {
+    let agent_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+    async fn handler(
+        axum::extract::Path((id, tail)): axum::extract::Path<(Uuid, String)>,
+    ) -> String {
+        format!("{id}:{tail}")
+    }
+
+    let app = Router::new().route("/agents/:id/proxy/*tail", any(handler));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+
+    let base = format!("http://{addr}/agents/{agent_id}/proxy");
+    for (suffix, want_tail) in [
+        ("/v1/health", "v1/health"),
+        ("/v1/sessions/abc", "v1/sessions/abc"),
+    ] {
+        let url = format!("{base}{suffix}");
+        let resp = reqwest::get(&url).await.expect("catch-all proxy route");
+        assert_eq!(resp.status(), 200, "url={url}");
+        assert_eq!(
+            resp.text().await.expect("body"),
+            format!("{agent_id}:{want_tail}"),
+            "url={url}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn nested_proxy_route_matches_client_path() {
+    let agent_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+    async fn handler(
+        axum::extract::Path(id): axum::extract::Path<Uuid>,
+        OriginalUri(uri): OriginalUri,
+    ) -> String {
+        proxy_tail(id, uri.path()).unwrap_or("missing").into()
+    }
+
+    let app = Router::new().nest(
+        "/v1/cloud/agents/:id/proxy",
+        Router::new().fallback(any(handler)),
+    );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+
+    let url = format!("http://{addr}/v1/cloud/agents/{agent_id}/proxy/v1/health");
+    let resp = reqwest::get(&url).await.expect("proxy route");
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await.expect("body"), "v1/health");
+}
 
 #[test]
 fn build_proxy_target_v1_health_no_double_v1() {
@@ -89,6 +150,48 @@ async fn v1_health_tail_forwards_to_engine_without_double_v1() {
     );
 }
 
+#[test]
+fn credential_proxy_paths_require_admin_role() {
+    let tail = "v1/providers/anthropic/credential-import";
+    assert!(is_credential_route(tail));
+    assert_eq!(min_role_for_proxy_path(tail, &Method::POST), "admin");
+    assert_eq!(min_role_for_proxy_path(tail, &Method::GET), "admin");
+}
+
+#[tokio::test]
+async fn assert_agent_access_for_proxy_blocks_operator_on_credential_import() {
+    let db = match test_db().await {
+        Some(db) => db,
+        None => return,
+    };
+    let org_id = Uuid::new_v4();
+    let agent_id = Uuid::new_v4();
+    let operator_id = Uuid::new_v4();
+    seed_operator_share(&db, org_id, agent_id, operator_id).await;
+
+    let principal = Principal {
+        user_id: operator_id,
+        email: Some("operator@example.com".into()),
+        org_id,
+        org_role: "member".into(),
+    };
+
+    assert_agent_access_for_method(&db, &principal, agent_id, &Method::POST)
+        .await
+        .expect("operator may POST non-credential routes");
+
+    let err = assert_agent_access_for_proxy(
+        &db,
+        &principal,
+        agent_id,
+        "v1/providers/openai/credential-import",
+        &Method::POST,
+    )
+    .await
+    .expect_err("operator must not proxy credential import");
+    assert_eq!(err.status, StatusCode::FORBIDDEN);
+}
+
 #[tokio::test]
 async fn assert_agent_access_for_method_get_vs_post_roles() {
     let db = match test_db().await {
@@ -146,6 +249,34 @@ async fn seed_viewer_share(db: &Db, org_id: Uuid, agent_id: Uuid, viewer_id: Uui
     )
     .bind(agent_id)
     .bind(viewer_id)
+    .execute(db.pool())
+    .await
+    .expect("share");
+}
+
+async fn seed_operator_share(db: &Db, org_id: Uuid, agent_id: Uuid, operator_id: Uuid) {
+    let owner_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO organizations (id, name) VALUES ($1, 'test-org')")
+        .bind(org_id)
+        .execute(db.pool())
+        .await
+        .expect("org");
+    sqlx::query(
+        "INSERT INTO cloud_agents (id, org_id, owner_user_id, name, config_id, folder_path)
+         VALUES ($1, $2, $3, 'test', 'default', '/data/workspace')",
+    )
+    .bind(agent_id)
+    .bind(org_id)
+    .bind(owner_id)
+    .execute(db.pool())
+    .await
+    .expect("agent");
+    sqlx::query(
+        "INSERT INTO cloud_agent_shares (agent_id, user_id, role)
+         VALUES ($1, $2, 'operator')",
+    )
+    .bind(agent_id)
+    .bind(operator_id)
     .execute(db.pool())
     .await
     .expect("share");

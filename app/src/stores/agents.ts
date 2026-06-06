@@ -1,7 +1,10 @@
 import { create } from "zustand";
 import { registerAgentLookup } from "../lib/agent-lookup";
 import {
-  createCloudAgent,
+  createCloudAgentWithBootstrap,
+  type CloudAgentCreateResult,
+} from "../lib/cloud-agent-create";
+import {
   deleteCloudAgent,
   getCloudBaseUrl,
   isCloudConfigured,
@@ -11,7 +14,10 @@ import {
 } from "../lib/cloud-client";
 import { showErrorToast } from "../lib/error-toast";
 import i18n from "../lib/i18n";
-import { activateAgentRuntime } from "../lib/activate-agent-runtime";
+import {
+  activateAgentRuntime,
+  deactivateAgentRuntime,
+} from "../lib/activate-agent-runtime";
 import { isCloudAgent } from "../lib/runtime-router";
 import { tauriAgents, tauriAttachments, tauriPreferences } from "../lib/tauri";
 import type { AgentRuntimeMode } from "../lib/types";
@@ -42,7 +48,8 @@ interface AgentState {
     runtime?: AgentRuntimeMode,
     provider?: string,
     model?: string,
-  ) => Promise<CreatedAgent>;
+    syncProviderCredentials?: boolean,
+  ) => Promise<CreatedAgent & Pick<CloudAgentCreateResult, "credentialSync" | "credentialSyncError">>;
   delete: (workspaceId: string, id: string) => Promise<void>;
   rename: (workspaceId: string, id: string, newName: string) => Promise<void>;
   updateColor: (workspaceId: string, id: string, color: string) => Promise<void>;
@@ -58,27 +65,50 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     if (!silent) set({ loading: true });
     try {
       const localAgents = await tauriAgents.list(workspaceId);
+      let cloudAgents: Agent[] = [];
       if (isCloudConfigured()) {
-        const ping = await pingCloudServer();
-        if (!ping.ok) {
-          const server = getCloudBaseUrl();
-          showErrorToast(
-            "cloud_ping",
-            i18n.t("shell:runtimeMode.cloudUnreachable", { server }),
-          );
+        if (!silent) {
+          const ping = await pingCloudServer();
+          if (!ping.ok) {
+            showErrorToast(
+              "cloud_ping",
+              i18n.t("shell:runtimeMode.cloudUnreachable", {
+                server: getCloudBaseUrl(),
+              }),
+            );
+          }
+        }
+        try {
+          const fetched = await listCloudAgents();
+          const fetchedIds = new Set(fetched.map((a) => a.id));
+          cloudAgents = [
+            ...fetched,
+            ...get().agents.filter(
+              (a) => isCloudAgent(a) && !fetchedIds.has(a.id),
+            ),
+          ];
+        } catch {
+          cloudAgents = get().agents.filter((a) => isCloudAgent(a));
         }
       }
-      let cloudAgents: Awaited<ReturnType<typeof listCloudAgents>> = [];
-      try {
-        cloudAgents = await listCloudAgents();
-      } catch {
-        // Cloud list is optional; local agents still load.
-      }
-      const agents = [...localAgents, ...cloudAgents];
-      const current = get().current;
-      const selected =
-        agents.find((a) => a.id === current?.id) ?? current;
+      const cloudIds = new Set(cloudAgents.map((a) => a.id));
+      const agents = [
+        ...localAgents.filter((a) => !cloudIds.has(a.id) && !isCloudAgent(a)),
+        ...cloudAgents,
+      ];
+      const prev = get().current;
+      const selected = agents.find((a) => a.id === prev?.id) ?? prev;
       set({ agents, current: selected, loading: false });
+      if (
+        selected &&
+        (prev?.id !== selected.id ||
+          prev?.runtime !== selected.runtime ||
+          prev?.folderPath !== selected.folderPath)
+      ) {
+        activateAgentRuntime(selected).catch((e) =>
+          console.error("[runtime] Failed to re-activate after agent load:", e),
+        );
+      }
     } catch (e) {
       console.error("[agents] Failed to load:", e);
       set({ loading: false });
@@ -86,6 +116,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   setCurrent: (agent) => {
+    const prev = get().current;
+    if (prev && prev.id !== agent.id) {
+      deactivateAgentRuntime(prev).catch((e) =>
+        console.error("[runtime] Failed to deactivate agent harness:", e),
+      );
+    }
     set({ current: agent });
     tauriPreferences.set("last_agent_id", agent.id);
     activateAgentRuntime(agent).catch((e) =>
@@ -105,31 +141,59 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     runtime: AgentRuntimeMode = "local",
     provider?: string,
     model?: string,
+    syncProviderCredentials = false,
   ) => {
     const result =
       runtime === "cloud_24_7"
-        ? {
-            agent: await createCloudAgent({
-              name,
-              configId,
-              color,
-              claudeMd,
-              provider,
-              model,
-            }),
-          }
-        : await tauriAgents.create(workspaceId, name, configId, color, claudeMd, installedPath, seeds, existingPath);
+        ? await createCloudAgentWithBootstrap({
+            name,
+            configId,
+            color,
+            claudeMd,
+            installedPath,
+            seeds,
+            provider,
+            model,
+            syncProviderCredentials,
+          })
+        : {
+            agent: (
+              await tauriAgents.create(
+                workspaceId,
+                name,
+                configId,
+                color,
+                claudeMd,
+                installedPath,
+                seeds,
+                existingPath,
+              )
+            ).agent,
+            credentialSync: "skipped" as const,
+          };
     analytics.track("agent_created", { config_id: configId });
     const { agent } = result;
+    const prev = get().current;
+    if (prev && prev.id !== agent.id) {
+      deactivateAgentRuntime(prev).catch((e) =>
+        console.error("[runtime] Failed to deactivate agent harness:", e),
+      );
+    }
     set((s) => ({
       agents: [...s.agents, agent],
       current: agent,
     }));
     tauriPreferences.set("last_agent_id", agent.id);
-    activateAgentRuntime(agent).catch((e) =>
-      console.error("[runtime] Failed to activate agent harness:", e),
-    );
-    return { agent };
+    try {
+      await activateAgentRuntime(agent);
+    } catch (e) {
+      console.error("[runtime] Failed to activate agent harness:", e);
+    }
+    return {
+      agent,
+      credentialSync: result.credentialSync,
+      credentialSyncError: result.credentialSyncError,
+    };
   },
 
   delete: async (workspaceId, id) => {

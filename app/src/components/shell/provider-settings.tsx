@@ -8,7 +8,7 @@ import { useClaudeInstall } from "../../hooks/use-claude-install";
 import { useUIStore } from "../../stores/ui";
 import { analytics } from "../../lib/analytics";
 import { subscribeHoustonEvents } from "../../lib/events";
-import { osIsTauri } from "../../lib/os-bridge";
+import { providerUsesDeviceAuth } from "../../lib/provider-device-auth";
 import { ProviderConnectDialog } from "./provider-connect-dialog";
 import { ProviderLoginDialog } from "./provider-login-dialog";
 import { ProviderAccountRow } from "./provider-account-row";
@@ -207,7 +207,7 @@ export function ProviderSettings() {
       // engine) can't receive the CLI's localhost OAuth callback, so ask
       // for the headless device-code flow. The engine ignores the flag for
       // providers without a device variant (Claude keeps its paste-back).
-      await tauriProvider.launchLogin(provider.id, { deviceAuth: !osIsTauri() });
+      await tauriProvider.launchLogin(provider.id, { deviceAuth: providerUsesDeviceAuth() });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[provider-settings] launchLogin(${provider.id}) failed:`, msg);

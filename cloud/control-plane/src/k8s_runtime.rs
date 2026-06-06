@@ -1,7 +1,7 @@
 //! Kubernetes runtime — Deployment + PVC + Service per cloud agent.
 
 use crate::auth::hash_token;
-use crate::engine_provision::{self, AgentBootstrapConfig};
+use crate::engine_provision;
 use crate::k8s_specs::{
     agent_deployment_name, agent_manifests, agent_pvc_name, agent_secret_name,
     internal_service_url, namespace_manifest, org_namespace,
@@ -10,8 +10,12 @@ use crate::runtime::{AgentProvisionConfig, RuntimeBackend, RuntimeRow};
 use async_trait::async_trait;
 use rand::RngCore;
 use std::process::Stdio;
+use std::time::Duration;
 use tokio::process::Command;
 use uuid::Uuid;
+
+const ENDPOINT_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const ENDPOINT_POLL_MAX: u32 = 60;
 
 #[derive(Clone)]
 pub struct K8sRuntime {
@@ -68,6 +72,54 @@ impl K8sRuntime {
         rand::thread_rng().fill_bytes(&mut bytes);
         bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
+
+    async fn agent_namespace(&self, agent_id: Uuid) -> anyhow::Result<Option<String>> {
+        let label = format!("houston.ai/agent-id={agent_id}");
+        let out = self
+            .kubectl(&[
+                "get",
+                "deployment,service,pvc,secret",
+                "-A",
+                "-l",
+                &label,
+                "-o",
+                "jsonpath={.items[0].metadata.namespace}",
+            ])
+            .await;
+        match out {
+            Ok(ns) if !ns.is_empty() => Ok(Some(ns)),
+            _ => Ok(None),
+        }
+    }
+
+    async fn wait_service_endpoints(&self, deploy: &str, ns: &str) -> anyhow::Result<()> {
+        for attempt in 1..=ENDPOINT_POLL_MAX {
+            match self
+                .kubectl(&[
+                    "get",
+                    "endpoints",
+                    deploy,
+                    "-n",
+                    ns,
+                    "-o",
+                    "jsonpath={.subsets[0].addresses[0].ip}",
+                ])
+                .await
+            {
+                Ok(ip) if service_endpoints_ready(&ip) => return Ok(()),
+                Ok(_) => {
+                    tracing::debug!(attempt, deploy, ns, "service endpoints not ready yet");
+                }
+                Err(e) => return Err(e),
+            }
+            tokio::time::sleep(ENDPOINT_POLL_INTERVAL).await;
+        }
+        anyhow::bail!("service {deploy} in {ns} has no endpoints after {ENDPOINT_POLL_MAX} polls");
+    }
+}
+
+fn service_endpoints_ready(endpoint_ip: &str) -> bool {
+    !endpoint_ip.trim().is_empty()
 }
 
 #[async_trait]
@@ -82,33 +134,44 @@ impl RuntimeBackend for K8sRuntime {
         let token = Self::random_token();
         let yaml = agent_manifests(agent_id, org_id, &self.engine_image, &token);
         if let Err(e) = self.apply_yaml(&yaml).await {
-            let _ = self.remove(agent_id).await;
+            if let Err(ce) = self.remove(agent_id).await {
+                tracing::warn!(
+                    agent_id = %agent_id,
+                    error = %ce,
+                    "k8s cleanup after apply error"
+                );
+            }
             return Err(e);
         }
         let deploy = agent_deployment_name(agent_id);
         let ns = org_namespace(org_id);
-        self.kubectl(&[
-            "rollout",
-            "status",
-            "deployment",
-            &deploy,
-            "-n",
-            &ns,
-            "--timeout=120s",
-        ])
-        .await?;
+        if let Err(e) = self
+            .kubectl(&[
+                "rollout",
+                "status",
+                "deployment",
+                &deploy,
+                "-n",
+                &ns,
+                "--timeout=120s",
+            ])
+            .await
+        {
+            if let Err(ce) = self.remove(agent_id).await {
+                tracing::warn!(
+                    agent_id = %agent_id,
+                    error = %ce,
+                    "k8s cleanup after rollout error"
+                );
+            }
+            return Err(e);
+        }
+        self.wait_service_endpoints(&deploy, &ns).await?;
         let internal_url = internal_service_url(agent_id, org_id);
         let folder_path = match engine_provision::bootstrap_engine_agent(
             &internal_url,
             &token,
-            &AgentBootstrapConfig {
-                name: agent.name.clone(),
-                config_id: agent.config_id.clone(),
-                color: agent.color.clone(),
-                claude_md: agent.claude_md.clone(),
-                provider: agent.provider.clone(),
-                model: agent.model.clone(),
-            },
+            &agent.bootstrap,
         )
         .await
         {
@@ -149,20 +212,8 @@ impl RuntimeBackend for K8sRuntime {
     }
 
     async fn remove(&self, agent_id: Uuid) -> anyhow::Result<()> {
-        let ns = match self
-            .kubectl(&[
-                "get",
-                "deployment",
-                "-A",
-                "-l",
-                &format!("houston.ai/agent-id={agent_id}"),
-                "-o",
-                "jsonpath={.items[0].metadata.namespace}",
-            ])
-            .await
-        {
-            Ok(n) if !n.is_empty() => n,
-            _ => return Ok(()),
+        let Some(ns) = self.agent_namespace(agent_id).await? else {
+            return Ok(());
         };
         let deploy = agent_deployment_name(agent_id);
         let pvc = agent_pvc_name(agent_id);
@@ -203,5 +254,21 @@ impl RuntimeBackend for K8sRuntime {
         } else {
             Ok("provisioning".into())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::service_endpoints_ready;
+
+    #[test]
+    fn service_endpoints_ready_accepts_pod_ip() {
+        assert!(service_endpoints_ready("10.42.0.22"));
+    }
+
+    #[test]
+    fn service_endpoints_ready_rejects_empty() {
+        assert!(!service_endpoints_ready(""));
+        assert!(!service_endpoints_ready("   "));
     }
 }

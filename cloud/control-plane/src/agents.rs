@@ -2,8 +2,12 @@
 
 use crate::audit;
 use crate::auth::Principal;
+use crate::bootstrap_bundle::{
+    self, resolve_bootstrap, AgentBootstrapBundle, CredentialSyncOptions,
+};
 use crate::db::Db;
 use crate::entitlements;
+use crate::engine_provision;
 use crate::error::{ApiError, ApiResult};
 use crate::runtime::{AgentProvisionConfig, RuntimeBackend};
 use chrono::{DateTime, Utc};
@@ -47,6 +51,10 @@ pub struct CreateCloudAgent {
     pub claude_md: Option<String>,
     pub provider: Option<String>,
     pub model: Option<String>,
+    #[serde(default)]
+    pub bootstrap_bundle: Option<AgentBootstrapBundle>,
+    #[serde(default)]
+    pub credential_sync: Option<CredentialSyncOptions>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,26 +150,40 @@ pub async fn create_agent(
     .execute(&mut *tx)
     .await
     .map_err(|e| ApiError::internal(e.to_string()))?;
-    let provision_config = AgentProvisionConfig {
-        name: name.to_string(),
-        config_id: body.config_id.clone(),
-        color: body.color.clone(),
-        claude_md: body.claude_md.clone(),
-        provider: body.provider.clone(),
-        model: body.model.clone(),
-    };
+    let bootstrap = resolve_bootstrap(
+        name,
+        &body.config_id,
+        body.color.clone(),
+        body.claude_md.clone(),
+        body.provider.clone(),
+        body.model.clone(),
+        body.bootstrap_bundle.as_ref(),
+    );
+    let provision_config = AgentProvisionConfig { bootstrap };
     match runtime
         .provision(agent_id, principal.org_id, &provision_config)
         .await
     {
         Ok(runtime_row) => {
-            sqlx::query("UPDATE cloud_agents SET folder_path = $2 WHERE id = $1")
+            if let Err(e) = sqlx::query("UPDATE cloud_agents SET folder_path = $2 WHERE id = $1")
                 .bind(agent_id)
                 .bind(&runtime_row.folder_path)
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| ApiError::internal(e.to_string()))?;
-            sqlx::query(
+            {
+                if let Err(ce) = runtime.remove(agent_id).await {
+                    tracing::warn!(
+                        agent_id = %agent_id,
+                        error = %ce,
+                        "runtime cleanup after db persist failure"
+                    );
+                }
+                tx.rollback()
+                    .await
+                    .map_err(|re| ApiError::internal(re.to_string()))?;
+                return Err(ApiError::internal(e.to_string()));
+            }
+            if let Err(e) = sqlx::query(
                 "INSERT INTO cloud_agent_runtimes
                  (agent_id, container_name, internal_url, token_hash, engine_token, status)
                  VALUES ($1, $2, $3, $4, $5, $6)",
@@ -174,10 +196,66 @@ pub async fn create_agent(
             .bind(&runtime_row.status)
             .execute(&mut *tx)
             .await
-            .map_err(|e| ApiError::internal(e.to_string()))?;
-            tx.commit()
+            {
+                if let Err(ce) = runtime.remove(agent_id).await {
+                    tracing::warn!(
+                        agent_id = %agent_id,
+                        error = %ce,
+                        "runtime cleanup after db persist failure"
+                    );
+                }
+                tx.rollback()
+                    .await
+                    .map_err(|re| ApiError::internal(re.to_string()))?;
+                return Err(ApiError::internal(e.to_string()));
+            }
+            if let Some(sync) = &body.credential_sync {
+                if let Err(e) = run_credential_sync(
+                    db,
+                    principal,
+                    agent_id,
+                    &runtime_row.internal_url,
+                    &runtime_row.engine_token,
+                    sync,
+                )
                 .await
-                .map_err(|e| ApiError::internal(e.to_string()))?;
+                {
+                    if let Err(ce) = runtime.remove(agent_id).await {
+                        tracing::warn!(
+                            agent_id = %agent_id,
+                            error = %ce,
+                            "runtime cleanup after credential sync failure"
+                        );
+                    }
+                    tx.rollback()
+                        .await
+                        .map_err(|re| ApiError::internal(re.to_string()))?;
+                    return Err(e);
+                }
+            }
+            if let Err(e) = tx.commit().await {
+                if let Err(ce) = runtime.remove(agent_id).await {
+                    tracing::warn!(
+                        agent_id = %agent_id,
+                        error = %ce,
+                        "runtime cleanup after db persist failure"
+                    );
+                }
+                return Err(ApiError::internal(e.to_string()));
+            }
+            audit::log(
+                db,
+                Some(principal.org_id),
+                Some(agent_id),
+                Some(principal.user_id),
+                "agent.bootstrap.applied",
+                Some(bootstrap_bundle::bootstrap_audit_detail(
+                    &provision_config.bootstrap.source,
+                    provision_config.bootstrap.skills.len(),
+                    provision_config.bootstrap.seeds.len(),
+                )),
+            )
+            .await;
             audit::log(
                 db,
                 Some(principal.org_id),
@@ -267,6 +345,68 @@ pub async fn patch_agent(
     )
     .await;
     Ok(to_wire(row))
+}
+
+async fn run_credential_sync(
+    db: &Db,
+    principal: &Principal,
+    agent_id: Uuid,
+    internal_url: &str,
+    engine_token: &str,
+    sync: &CredentialSyncOptions,
+) -> ApiResult<()> {
+    assert_agent_access(db, principal, agent_id, "admin").await?;
+    let provider = sync.provider.trim();
+    if provider.is_empty() {
+        return Err(ApiError::bad_request("credentialSync.provider is required"));
+    }
+    audit::log(
+        db,
+        Some(principal.org_id),
+        Some(agent_id),
+        Some(principal.user_id),
+        "provider.credentials.sync.requested",
+        Some(serde_json::json!({ "provider": provider })),
+    )
+    .await;
+    match engine_provision::sync_provider_credentials(
+        internal_url,
+        engine_token,
+        provider,
+        &sync.import_body,
+    )
+    .await
+    {
+        Ok(()) => {
+            audit::log(
+                db,
+                Some(principal.org_id),
+                Some(agent_id),
+                Some(principal.user_id),
+                "provider.credentials.sync.ok",
+                Some(bootstrap_bundle::credential_sync_audit_detail(
+                    provider, true, Some(200), None,
+                )),
+            )
+            .await;
+            Ok(())
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            audit::log(
+                db,
+                Some(principal.org_id),
+                Some(agent_id),
+                Some(principal.user_id),
+                "provider.credentials.sync.failed",
+                Some(bootstrap_bundle::credential_sync_audit_detail(
+                    provider, false, None, Some(&msg),
+                )),
+            )
+            .await;
+            Err(ApiError::internal(msg))
+        }
+    }
 }
 
 pub async fn delete_agent(

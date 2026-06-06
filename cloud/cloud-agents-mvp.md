@@ -9,8 +9,8 @@ Construir un MVP funcional, no una demo falsa: el usuario crea un agente desde e
 - Reusar la UI actual de creacion de agente.
 - Agregar la eleccion `Este computador` / `Nube 24/7` en el paso de nombre y color.
 - No exponer engines cloud al internet. Solo el control plane es publico.
-- No copiar credenciales locales de proveedores al contenedor.
-- El login de Claude, Codex y Gemini ocurre contra el engine cloud.
+- No reautenticar manualmente al usuario en el pod.
+- Sincronizar credenciales de proveedor con el flujo seguro definido en `cloud/cloud-agent-sync-migration-plan.md`.
 - Un cloud agent es 24/7: container con restart policy, volumen propio y token interno.
 - Sharing cloud da acceso al agente vivo. Portable sigue siendo para plantillas.
 - Docker en VPS primero. K3s despues, sin rehacer UI ni contrato.
@@ -128,19 +128,20 @@ Nube 24/7
 
 Agregar llaves i18n en `shell.json` para `en`, `es`, `pt`.
 
-## Fase 6 - Provider Login En Cloud
+## Fase 6 - Provider Credentials En Cloud
 
-No mover credenciales locales.
+No pedir reauth manual cuando la credencial local sea exportable.
 
 Flujo:
 
 1. usuario crea agente cloud
 2. container arranca
 3. UI selecciona provider/model como hoy
-4. UI pregunta status al engine cloud
-5. si falta login, muestra los dialogos existentes
-6. login escribe credenciales en el volumen cloud del agente
-7. agent queda operativo 24/7
+4. app genera bootstrap bundle con instrucciones, seeds y skills
+5. local engine exporta credenciales permitidas en bundle cifrado
+6. cloud engine importa credenciales en su volumen persistente
+7. UI pregunta status al engine cloud
+8. agent queda operativo 24/7
 
 ## Fase 7 - Sharing
 

@@ -802,6 +802,70 @@ async fn login_accepts_optional_device_auth_query() {
     }
 }
 
+#[tokio::test]
+async fn credential_sync_round_trip_openai() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let prior_home = std::env::var_os("HOME");
+    std::env::set_var("HOME", tmp.path());
+    let auth_path = tmp.path().join(".codex/auth.json");
+    std::fs::create_dir_all(auth_path.parent().unwrap()).unwrap();
+    std::fs::write(&auth_path, r#"{"tokens":{"access":"x"}}"#).unwrap();
+
+    let (addr, tok) = spawn().await;
+    let client = reqwest::Client::new();
+    let base = format!("http://{addr}/v1/providers/openai");
+
+    let session: serde_json::Value = client
+        .post(format!("{base}/credential-import/session"))
+        .bearer_auth(&tok)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let session_id = session["sessionId"].as_str().unwrap();
+    let public_key = session["publicKey"].as_str().unwrap();
+
+    let export: serde_json::Value = client
+        .post(format!("{base}/credential-export"))
+        .bearer_auth(&tok)
+        .json(&serde_json::json!({
+            "sessionId": session_id,
+            "publicKey": public_key,
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(export["provider"], "openai");
+
+    std::fs::remove_file(&auth_path).unwrap();
+
+    let import: serde_json::Value = client
+        .post(format!("{base}/credential-import"))
+        .bearer_auth(&tok)
+        .json(&serde_json::json!({
+            "sessionId": session_id,
+            "ciphertext": export["ciphertext"],
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(import["filesWritten"], 1);
+    assert!(auth_path.exists());
+
+    match prior_home {
+        Some(v) => std::env::set_var("HOME", v),
+        None => std::env::remove_var("HOME"),
+    }
+}
+
 // The previous "Houston drives Google OAuth directly" routes
 // (`/providers/gemini/oauth/{start,cancel}`) were removed in favor of
 // delegating to gemini-cli's own OAuth via the `--acp` JSON-RPC

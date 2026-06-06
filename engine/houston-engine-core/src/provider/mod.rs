@@ -9,6 +9,7 @@
 //! from the engine. Legacy paths are still read for migration. See
 //! [`provider_env_store`] and the per-provider credential modules.
 
+pub mod credentials;
 mod provider_env_store;
 mod anthropic_credentials;
 mod anthropic_disconnect;
@@ -31,6 +32,11 @@ pub use openai_credentials::{
 pub use openai_disconnect::disconnect_openai;
 pub use openrouter_credentials::{read_openrouter_api_key, set_openrouter_api_key};
 pub use openrouter_disconnect::disconnect_openrouter;
+pub use credentials::{
+    export_credentials, import_credentials, start_import_session, CredentialExportRequest,
+    CredentialExportResponse, CredentialImportRequest, CredentialImportResponse,
+    CredentialImportSessionResponse, CredentialProvider,
+};
 pub use login_relay::{cancel_login, submit_login_code};
 
 use crate::error::{CoreError, CoreResult};

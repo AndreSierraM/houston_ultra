@@ -27,6 +27,8 @@ interface AiReviewStepProps {
   error: string | null;
   runtimeMode: AgentRuntimeMode;
   onRuntimeModeChange: (mode: AgentRuntimeMode) => void;
+  syncProviderCredentials: boolean;
+  onSyncProviderCredentialsChange: (value: boolean) => void;
 }
 
 export function AiReviewStep({
@@ -42,6 +44,8 @@ export function AiReviewStep({
   error,
   runtimeMode,
   onRuntimeModeChange,
+  syncProviderCredentials,
+  onSyncProviderCredentialsChange,
 }: AiReviewStepProps) {
   const { t } = useTranslation("shell");
   const resolvedColor = resolveAgentColor(color);
@@ -92,7 +96,12 @@ export function AiReviewStep({
             />
           </div>
 
-          <RuntimeModeSelector value={runtimeMode} onChange={onRuntimeModeChange} />
+          <RuntimeModeSelector
+            value={runtimeMode}
+            onChange={onRuntimeModeChange}
+            syncConnection={syncProviderCredentials}
+            onSyncConnectionChange={onSyncProviderCredentialsChange}
+          />
 
           {/* Instructions */}
           <div className="space-y-2">

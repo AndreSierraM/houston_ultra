@@ -8,7 +8,7 @@ import {
 } from "@houston-ai/core";
 import type { ProviderInfo } from "../../lib/providers";
 import { tauriProvider } from "../../lib/tauri";
-import { osIsTauri } from "../../lib/os-bridge";
+import { providerUsesDeviceAuth } from "../../lib/provider-device-auth";
 import { useUIStore } from "../../stores/ui";
 import { ApiKeyAdvancedSection } from "./api-key-advanced-section";
 import { ConnectDialogShell } from "./connect-dialog-layout";
@@ -52,7 +52,7 @@ export function CliConnectDialog({
     setError(null);
     setSigningIn(true);
     try {
-      await tauriProvider.launchLogin(provider.id, { deviceAuth: !osIsTauri() });
+      await tauriProvider.launchLogin(provider.id, { deviceAuth: providerUsesDeviceAuth() });
       onLoginStarted(provider.id);
       onOpenChange(false);
     } catch (err) {

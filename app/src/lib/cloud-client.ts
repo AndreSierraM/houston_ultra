@@ -2,6 +2,7 @@
  * Houston Cloud control plane client.
  * Auth: `VITE_HOUSTON_CLOUD_TOKEN` (local dev) or Supabase session bearer.
  */
+import type { AgentBootstrapBundle } from "@houston-ai/engine-client";
 import type { Agent } from "./types";
 
 export type AgentRuntimeMode = "local" | "cloud_24_7";
@@ -21,6 +22,8 @@ export interface CreateCloudAgentInput {
   claudeMd?: string;
   provider?: string;
   model?: string;
+  bootstrapBundle?: AgentBootstrapBundle;
+  syncProviderCredentials?: boolean;
 }
 
 export interface PatchCloudAgentInput {
@@ -150,31 +153,60 @@ export async function fetchCloudEntitlements(): Promise<CloudEntitlement> {
   return cloudFetch("/v1/cloud/entitlements");
 }
 
+/** Normalize control-plane JSON (camelCase or legacy snake_case) into app Agent. */
+export function normalizeCloudAgent(raw: Agent & Record<string, unknown>): Agent {
+  const id = String(raw.id);
+  const folderPath =
+    (typeof raw.folderPath === "string" && raw.folderPath) ||
+    (typeof raw.folder_path === "string" && raw.folder_path) ||
+    `cloud://${id}`;
+  return {
+    id,
+    name: String(raw.name),
+    folderPath,
+    configId:
+      (typeof raw.configId === "string" && raw.configId) ||
+      (typeof raw.config_id === "string" && raw.config_id) ||
+      "",
+    color: typeof raw.color === "string" ? raw.color : undefined,
+    createdAt:
+      (typeof raw.createdAt === "string" && raw.createdAt) ||
+      (typeof raw.created_at === "string" && raw.created_at) ||
+      new Date().toISOString(),
+    lastOpenedAt:
+      (typeof raw.lastOpenedAt === "string" && raw.lastOpenedAt) ||
+      (typeof raw.last_opened_at === "string" && raw.last_opened_at) ||
+      undefined,
+    runtime: "cloud_24_7",
+  };
+}
+
 export async function listCloudAgents(): Promise<Agent[]> {
-  const agents = await cloudFetch<Agent[]>("/v1/cloud/agents");
-  return agents.map((a) => ({ ...a, runtime: "cloud_24_7" as const }));
+  const agents = await cloudFetch<(Agent & Record<string, unknown>)[]>("/v1/cloud/agents");
+  return agents.map(normalizeCloudAgent);
 }
 
 export async function createCloudAgent(
   input: CreateCloudAgentInput,
 ): Promise<Agent> {
-  const agent = await cloudFetch<Agent>("/v1/cloud/agents", {
+  const { syncProviderCredentials: _sync, ...payload } = input;
+  const agent = await cloudFetch<Agent & Record<string, unknown>>("/v1/cloud/agents", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify(payload),
   });
-  return { ...agent, runtime: "cloud_24_7" };
+  return normalizeCloudAgent(agent);
 }
 
 export async function patchCloudAgent(
   id: string,
   input: PatchCloudAgentInput,
 ): Promise<Agent> {
-  const agent = await cloudFetch<Agent>(
+  const agent = await cloudFetch<Agent & Record<string, unknown>>(
     `/v1/cloud/agents/${id}`,
     { method: "PATCH", body: JSON.stringify(input) },
     "update cloud agent",
   );
-  return { ...agent, runtime: "cloud_24_7" };
+  return normalizeCloudAgent(agent);
 }
 
 export async function deleteCloudAgent(id: string): Promise<void> {

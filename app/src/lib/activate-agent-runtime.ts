@@ -7,41 +7,56 @@
  * not bypass this path.
  */
 
-import { ensureAgentEngineWs, isCloudAgent } from "./runtime-router";
-import { tauriRoutines, tauriWatcher } from "./tauri";
+import { resolveEngine } from "./engine-for-agent";
+import {
+  disconnectCloudEngineWs,
+  ensureAgentEngineWs,
+  isCloudAgent,
+} from "./runtime-router";
+import { getEngine } from "./engine";
+import {
+  runtimeActivationPlan,
+  runtimeDeactivationPlan,
+} from "./runtime-activation-plan";
 import type { Agent } from "./types";
 
+export {
+  runtimeActivationPlan,
+  runtimeDeactivationPlan,
+} from "./runtime-activation-plan";
+
 async function stopLocalWatcher(): Promise<void> {
-  const { getEngine } = await import("./engine");
   await getEngine().stopAgentWatcher();
 }
 
 /** Start watcher, scheduler, and cloud WS for one agent. */
 export async function activateAgentRuntime(agent: Agent): Promise<void> {
-  if (isCloudAgent(agent)) {
-    await ensureAgentEngineWs(agent);
-  } else {
-    // Avoid a stale local watcher pointing at a previous agent folder.
+  const plan = runtimeActivationPlan(agent);
+
+  if (plan.stopLocalWatcher) {
     await stopLocalWatcher().catch(() => undefined);
   }
+  if (!isCloudAgent(agent)) {
+    disconnectCloudEngineWs();
+  } else {
+    await ensureAgentEngineWs(agent);
+  }
 
+  const engine = await resolveEngine(agent, agent.folderPath);
   await Promise.all([
-    tauriWatcher.start(agent.folderPath),
-    tauriRoutines.startScheduler(agent.folderPath),
+    engine.startAgentWatcher(agent.folderPath),
+    engine.startRoutineScheduler(agent.folderPath),
   ]);
 }
 
 /** Tear down harness resources when leaving an agent (best-effort). */
 export async function deactivateAgentRuntime(agent: Agent | null): Promise<void> {
   if (!agent) return;
-
-  if (isCloudAgent(agent)) {
-    await tauriRoutines.stopScheduler(agent.folderPath).catch(() => undefined);
-    return;
+  const plan = runtimeDeactivationPlan(agent);
+  if (plan.disconnectCloudWs) {
+    disconnectCloudEngineWs();
   }
-
-  await Promise.all([
-    tauriRoutines.stopScheduler(agent.folderPath).catch(() => undefined),
-    stopLocalWatcher().catch(() => undefined),
-  ]);
+  if (plan.stopLocalWatcher) {
+    await stopLocalWatcher().catch(() => undefined);
+  }
 }

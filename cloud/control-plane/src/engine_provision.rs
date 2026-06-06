@@ -1,5 +1,6 @@
 //! Bootstrap workspace + agent inside a freshly started houston-engine container.
 
+use crate::bootstrap_bundle::ResolvedBootstrap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
@@ -7,16 +8,24 @@ use std::time::Duration;
 pub const CLOUD_WORKSPACE_NAME: &str = "Cloud";
 
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(500);
-const HEALTH_POLL_MAX: u32 = 60;
+const HEALTH_POLL_MAX: u32 = 240;
+const HEALTH_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const HEALTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const HEALTH_STABLE_SUCCESSES: u32 = 2;
+const BOOTSTRAP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const CREDENTIAL_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Clone)]
-pub struct AgentBootstrapConfig {
-    pub name: String,
-    pub config_id: String,
-    pub color: Option<String>,
-    pub claude_md: Option<String>,
-    pub provider: Option<String>,
-    pub model: Option<String>,
+fn health_check_client() -> anyhow::Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .connect_timeout(HEALTH_CONNECT_TIMEOUT)
+        .timeout(HEALTH_REQUEST_TIMEOUT)
+        .build()?)
+}
+
+fn bootstrap_client() -> anyhow::Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .timeout(BOOTSTRAP_REQUEST_TIMEOUT)
+        .build()?)
 }
 
 #[derive(Debug, Deserialize)]
@@ -41,17 +50,39 @@ struct EngineAgent {
 pub async fn bootstrap_engine_agent(
     internal_url: &str,
     engine_token: &str,
-    config: &AgentBootstrapConfig,
+    config: &ResolvedBootstrap,
 ) -> anyhow::Result<String> {
+    let health_client = health_check_client()?;
+    let client = bootstrap_client()?;
+    let base = internal_url.trim_end_matches('/');
+    wait_healthy(&health_client, base, engine_token).await?;
+    let workspace_id = ensure_cloud_workspace(&client, base, engine_token).await?;
+    let folder_path =
+        create_agent(&client, base, engine_token, &workspace_id, config).await?;
+    apply_bootstrap_bundle(&client, base, engine_token, &folder_path, config).await?;
+    Ok(folder_path)
+}
+
+/// Proxy-passthrough credential import to the private engine (control plane never decrypts).
+pub async fn sync_provider_credentials(
+    internal_url: &str,
+    engine_token: &str,
+    provider: &str,
+    import_body: &Value,
+) -> anyhow::Result<()> {
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
+        .timeout(CREDENTIAL_SYNC_TIMEOUT)
         .build()?;
     let base = internal_url.trim_end_matches('/');
-    wait_healthy(&client, base, engine_token).await?;
-    let workspace_id = ensure_cloud_workspace(&client, base, engine_token).await?;
-    let folder_path = create_agent(&client, base, engine_token, &workspace_id, config).await?;
-    seed_agent_content(&client, base, engine_token, &folder_path, config).await?;
-    Ok(folder_path)
+    let url = format!("{base}/v1/providers/{provider}/credential-import");
+    client
+        .post(&url)
+        .bearer_auth(engine_token)
+        .json(import_body)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
 }
 
 async fn wait_healthy(
@@ -60,13 +91,21 @@ async fn wait_healthy(
     token: &str,
 ) -> anyhow::Result<()> {
     let url = format!("{base}/v1/health");
+    let mut stable = 0u32;
     for attempt in 1..=HEALTH_POLL_MAX {
         match client.get(&url).bearer_auth(token).send().await {
-            Ok(res) if res.status().is_success() => return Ok(()),
+            Ok(res) if res.status().is_success() => {
+                stable += 1;
+                if stable >= HEALTH_STABLE_SUCCESSES {
+                    return Ok(());
+                }
+            }
             Ok(res) => {
+                stable = 0;
                 tracing::debug!(attempt, status = %res.status(), "engine health not ready");
             }
             Err(e) => {
+                stable = 0;
                 tracing::debug!(attempt, error = %e, "engine health poll failed");
             }
         }
@@ -119,7 +158,7 @@ async fn create_agent(
     base: &str,
     token: &str,
     workspace_id: &str,
-    config: &AgentBootstrapConfig,
+    config: &ResolvedBootstrap,
 ) -> anyhow::Result<String> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -147,27 +186,36 @@ async fn create_agent(
     Ok(created.agent.folder_path)
 }
 
-async fn seed_agent_content(
+async fn apply_bootstrap_bundle(
     client: &reqwest::Client,
     base: &str,
     token: &str,
     agent_path: &str,
-    config: &AgentBootstrapConfig,
+    config: &ResolvedBootstrap,
 ) -> anyhow::Result<()> {
     if let Some(content) = config.claude_md.as_deref() {
-        write_claude_md(client, base, token, agent_path, content).await?;
+        write_agent_file(client, base, token, agent_path, "CLAUDE.md", content).await?;
     }
-    if config.provider.is_some() || config.model.is_some() {
+    for seed in &config.seeds {
+        write_agent_file(client, base, token, agent_path, &seed.rel_path, &seed.content)
+            .await?;
+    }
+    for skill in &config.skills {
+        install_skill(client, base, token, agent_path, skill).await?;
+    }
+    if config.provider.is_some() || config.model.is_some() || config.effort.is_some() {
         write_provider_config(client, base, token, agent_path, config).await?;
     }
+    seed_schemas_and_migrate(client, base, token, agent_path).await?;
     Ok(())
 }
 
-async fn write_claude_md(
+async fn write_agent_file(
     client: &reqwest::Client,
     base: &str,
     token: &str,
     agent_path: &str,
+    rel_path: &str,
     content: &str,
 ) -> anyhow::Result<()> {
     #[derive(Serialize)]
@@ -183,8 +231,39 @@ async fn write_claude_md(
         .bearer_auth(token)
         .json(&WriteBody {
             agent_path,
-            rel_path: "CLAUDE.md",
+            rel_path,
             content,
+        })
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
+}
+
+async fn install_skill(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    agent_path: &str,
+    skill: &crate::bootstrap_bundle::BootstrapSkill,
+) -> anyhow::Result<()> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CreateSkill<'a> {
+        workspace_path: &'a str,
+        name: &'a str,
+        description: &'a str,
+        content: &'a str,
+    }
+    let url = format!("{base}/v1/skills");
+    client
+        .post(&url)
+        .bearer_auth(token)
+        .json(&CreateSkill {
+            workspace_path: agent_path,
+            name: &skill.slug,
+            description: "",
+            content: &skill.skill_md,
         })
         .send()
         .await?
@@ -197,7 +276,7 @@ async fn write_provider_config(
     base: &str,
     token: &str,
     agent_path: &str,
-    config: &AgentBootstrapConfig,
+    config: &ResolvedBootstrap,
 ) -> anyhow::Result<()> {
     let url = format!("{base}/v1/agents/config");
     let current: Value = client
@@ -213,6 +292,7 @@ async fn write_provider_config(
         current,
         config.provider.as_deref(),
         config.model.as_deref(),
+        config.effort.as_deref(),
     );
     client
         .put(&url)
@@ -225,12 +305,45 @@ async fn write_provider_config(
     Ok(())
 }
 
-fn patch_config(mut cfg: Value, provider: Option<&str>, model: Option<&str>) -> Value {
+async fn seed_schemas_and_migrate(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    agent_path: &str,
+) -> anyhow::Result<()> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct AgentPathBody<'a> {
+        agent_path: &'a str,
+    }
+    let body = AgentPathBody { agent_path };
+    for path in ["seed-schemas", "migrate"] {
+        let url = format!("{base}/v1/agents/files/{path}");
+        client
+            .post(&url)
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?;
+    }
+    Ok(())
+}
+
+pub fn patch_config(
+    mut cfg: Value,
+    provider: Option<&str>,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Value {
     if let Some(p) = provider {
         cfg["provider"] = Value::String(p.to_string());
     }
     if let Some(m) = model {
         cfg["model"] = Value::String(m.to_string());
+    }
+    if let Some(e) = effort {
+        cfg["effort"] = Value::String(e.to_string());
     }
     cfg
 }
@@ -241,11 +354,16 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn patch_config_sets_provider_and_model() {
-        let out = patch_config(json!({ "name": "alpha" }), Some("anthropic"), Some("sonnet"));
+    fn patch_config_sets_provider_model_and_effort() {
+        let out = patch_config(
+            json!({ "name": "alpha" }),
+            Some("anthropic"),
+            Some("sonnet"),
+            Some("high"),
+        );
         assert_eq!(out["provider"], "anthropic");
         assert_eq!(out["model"], "sonnet");
-        assert_eq!(out["name"], "alpha");
+        assert_eq!(out["effort"], "high");
     }
 
     #[test]
@@ -253,6 +371,7 @@ mod tests {
         let out = patch_config(
             json!({ "worktreeMode": "always" }),
             Some("openai"),
+            None,
             None,
         );
         assert_eq!(out["provider"], "openai");

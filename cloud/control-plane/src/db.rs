@@ -26,6 +26,21 @@ impl Db {
         Ok(())
     }
 
+    /// Ensures every org has a subscription row. New orgs get active defaults; existing
+    /// orgs missing a row (partial seed, manual DB, pre-entitlements schema) are backfilled.
+    pub async fn ensure_org_entitlements(&self, org_id: Uuid) -> ApiResult<()> {
+        sqlx::query(
+            "INSERT INTO cloud_entitlements (org_id, status, max_cloud_agents, max_storage_gb, max_members)
+             VALUES ($1, 'active', 4, 10, 5)
+             ON CONFLICT (org_id) DO NOTHING",
+        )
+        .bind(org_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+        Ok(())
+    }
+
     pub async fn ensure_user_org(
         &self,
         user_id: Uuid,
@@ -39,6 +54,7 @@ impl Db {
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
         if let Some((org_id, role)) = existing {
+            self.ensure_org_entitlements(org_id).await?;
             return Ok((org_id, role));
         }
         let org_name = email
@@ -64,17 +80,10 @@ impl Db {
         .execute(&mut *tx)
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
-        sqlx::query(
-            "INSERT INTO cloud_entitlements (org_id, status, max_cloud_agents, max_storage_gb, max_members)
-             VALUES ($1, 'active', 4, 10, 5)",
-        )
-        .bind(org_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
         tx.commit()
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
+        self.ensure_org_entitlements(org_id).await?;
         Ok((org_id, "owner".into()))
     }
 

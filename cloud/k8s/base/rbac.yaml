@@ -13,7 +13,7 @@ rules:
     resources: ["namespaces"]
     verbs: ["get", "create", "list", "watch"]
   - apiGroups: [""]
-    resources: ["persistentvolumeclaims", "services", "secrets"]
+    resources: ["persistentvolumeclaims", "services", "secrets", "endpoints", "pods"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments"]

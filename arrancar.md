@@ -10,14 +10,18 @@ cargo build -p houston-engine-server
 # App: app/.env.local
 # Dokploy: cloud/control-plane/deploy/DOKPLOY.md
 
-# Cloud local (sin Supabase)
-# ./scripts/generate-cloud-token.sh   # copia las dos líneas a deploy/.env y app/.env.local
-# 1. Postgres + control plane:
-#    DATABASE_URL=postgres://... HOUSTON_CLOUD_AUTH=local HOUSTON_CLOUD_TOKEN=... cargo run -p houston-cloud-control-plane
-#    (sin HOUSTON_CLOUD_TOKEN el servidor genera uno efímero en el log)
-# 2. app/.env.local:
-#    VITE_HOUSTON_CLOUD_BASE=http://127.0.0.1:8788
-#    VITE_HOUSTON_CLOUD_TOKEN=...   # mismo valor que HOUSTON_CLOUD_TOKEN
+# Cloud local K8s (k3d en Mac, Postgres in-cluster)
+# Runbook: cloud/k8s/LOCAL-RUNBOOK.md
+# ./cloud/k8s/scripts/bootstrap-local-env.sh
+# ./cloud/k8s/scripts/setup-local-k3d.sh
+# export HOUSTON_CLOUD_TOKEN=... && ./cloud/k8s/scripts/smoke-local.sh
+# Tras cambios en control-plane: ./cloud/k8s/scripts/redeploy-control-plane-fast.sh (~2 min)
+# app/.env.local: VITE_HOUSTON_CLOUD_BASE=http://127.0.0.1:8788 + mismo token
+# Teardown: ./cloud/k8s/scripts/teardown-local-k3d.sh
+# Prompt IA: cloud/k8s/PROMPT-LOCAL.md
+
+# Cloud local bare metal (sin K8s)
+# cargo run -p houston-cloud-control-plane + DATABASE_URL local
 
 # App principal
 cd app && pnpm tauri dev

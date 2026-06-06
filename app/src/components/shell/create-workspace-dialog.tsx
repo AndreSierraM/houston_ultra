@@ -64,6 +64,7 @@ export function CreateAgentDialog() {
   const [provider, setProvider] = useState<string>("anthropic");
   const [model, setModel] = useState<string>(getDefaultModel("anthropic"));
   const [runtimeMode, setRuntimeMode] = useState<AgentRuntimeMode>("local");
+  const [syncProviderCredentials, setSyncProviderCredentials] = useState(true);
 
   // Reset form on close. On open, sync the picker to the sticky last-used
   // pair. Reading on open (not mount) prevents the old "stale workspace
@@ -85,6 +86,7 @@ export function CreateAgentDialog() {
       setSearch("");
       setExistingPath(null);
       setRuntimeMode("local");
+      setSyncProviderCredentials(true);
       return;
     }
     let cancelled = false;
@@ -102,6 +104,8 @@ export function CreateAgentDialog() {
   const handleClose = () => {
     setOpen(false);
   };
+
+  const addToast = useUIStore((s) => s.addToast);
 
   const handleCreateAgent = async () => {
     const trimmed = name.trim();
@@ -127,7 +131,7 @@ export function CreateAgentDialog() {
     // AI-generated instructions take priority over the template's claudeMd.
     const claudeMd = generatedClaudeMd ?? selectedDef?.config.claudeMd;
     try {
-      const { agent } = await createAgent(
+      const createResult = await createAgent(
         currentWorkspace.id,
         trimmed,
         selectedConfigId,
@@ -139,20 +143,37 @@ export function CreateAgentDialog() {
         runtimeMode,
         provider,
         model,
+        runtimeMode === "cloud_24_7" ? syncProviderCredentials : false,
       );
-      // Always write provider/model to the agent's own config. With workspace
-      // defaults retired, the agent is the single source of truth — leaving
-      // the field blank would make the engine resolver fall back to its
-      // platform default rather than the user's pick.
-      const cfg = await tauriConfig.read(agent.folderPath);
-      await tauriConfig.write(agent.folderPath, {
-        ...cfg,
-        ...(isConfigProvider(provider) ? { provider } : {}),
-        model,
-      });
+      const { agent, credentialSync, credentialSyncError } = createResult;
+      if (runtimeMode === "local") {
+        // Write provider/model to the agent's on-disk config. Cloud agents
+        // receive provider/model during control-plane provision — reading or
+        // writing folderPath here would hit the local engine by mistake.
+        const cfg = await tauriConfig.read(agent.folderPath);
+        await tauriConfig.write(agent.folderPath, {
+          ...cfg,
+          ...(isConfigProvider(provider) ? { provider } : {}),
+          model,
+        });
+      }
       // Keep the sticky last-used in sync so the next new agent inherits
       // the user's most recent choice.
       await tauriProvider.setLastUsed(provider, model);
+      if (runtimeMode === "cloud_24_7") {
+        if (credentialSync === "success") {
+          addToast({
+            title: t("runtimeMode.cloudCreateSyncSuccess"),
+            variant: "success",
+          });
+        } else if (credentialSync === "failed") {
+          addToast({
+            title: t("runtimeMode.cloudCreateSyncFailed"),
+            description: credentialSyncError,
+            variant: "error",
+          });
+        }
+      }
       if (runtimeMode === "local" && routineAccepted && routineForm) {
         // The agent is brand new, so its scheduler was never started
         // (create() doesn't go through setCurrent, and use-houston-init
@@ -181,7 +202,8 @@ export function CreateAgentDialog() {
       useUIStore.getState().setViewMode(DEFAULT_TAB_ID);
       handleClose();
     } catch (err) {
-      setError(String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
     } finally {
       setCreating(false);
     }
@@ -322,6 +344,8 @@ export function CreateAgentDialog() {
             error={error}
             runtimeMode={runtimeMode}
             onRuntimeModeChange={setRuntimeMode}
+            syncProviderCredentials={syncProviderCredentials}
+            onSyncProviderCredentialsChange={setSyncProviderCredentials}
           />
         ) : (
           <NamingStep
@@ -339,6 +363,8 @@ export function CreateAgentDialog() {
             onProviderChange={(p, m) => { setProvider(p); setModel(m); }}
             runtimeMode={runtimeMode}
             onRuntimeModeChange={setRuntimeMode}
+            syncProviderCredentials={syncProviderCredentials}
+            onSyncProviderCredentialsChange={setSyncProviderCredentials}
             onBack={() => setStep(1)}
             onSubmit={handleSubmit}
           />
