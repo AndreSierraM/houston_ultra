@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     environment:
       HOUSTON_CLOUD_BIND: 0.0.0.0:8788
-      DATABASE_URL: postgresql://postgres.vfdydumriboswopwrakb:${SUPABASE_DB_PASSWORD:?set SUPABASE_DB_PASSWORD}@aws-1-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require
+      DATABASE_URL: postgresql://postgres.vfdydumriboswopwrakb:${SUPABASE_DB_PASSWORD:?set SUPABASE_DB_PASSWORD}@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require
       HOUSTON_CLOUD_AUTH: ${HOUSTON_CLOUD_AUTH:-local}
       HOUSTON_CLOUD_TOKEN: ${HOUSTON_CLOUD_TOKEN:-}
       HOUSTON_CLOUD_LOCAL_USER_ID: ${HOUSTON_CLOUD_LOCAL_USER_ID:-00000000-0000-0000-0000-000000000001}

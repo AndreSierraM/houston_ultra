@@ -12,7 +12,7 @@ fi
 PW="$1"
 PROJECT_REF="vfdydumriboswopwrakb"
 POOL_HOST="aws-1-us-east-2.pooler.supabase.com"
-DB_URL="postgresql://postgres.${PROJECT_REF}:${PW}@${POOL_HOST}:6543/postgres?sslmode=require"
+DB_URL="postgresql://postgres.${PROJECT_REF}:${PW}@${POOL_HOST}:5432/postgres?sslmode=require"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY_ENV="$ROOT/cloud/control-plane/deploy/.env"
