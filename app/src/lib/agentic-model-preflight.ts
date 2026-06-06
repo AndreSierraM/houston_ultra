@@ -61,6 +61,6 @@ export async function assertAgenticModelPreflight(
 
   throw new Error(
     `${resolved.label} is chat-only and cannot run bash, web search, or file tools. ` +
-      `Switch to Claude Sonnet 4 or GPT-4.1 in the model selector.`,
+      `Pick an agentic OpenRouter model such as Claude Sonnet 4, Gemini 2.5 Flash, or Qwen3 Coder Next.`,
   );
 }

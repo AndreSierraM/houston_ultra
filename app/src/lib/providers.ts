@@ -184,26 +184,47 @@ export const PROVIDERS: readonly ProviderInfo[] = [
       {
         id: "anthropic/claude-sonnet-4",
         label: "Claude Sonnet 4",
-        description: "Anthropic Sonnet via OpenRouter. Full agent tools.",
-        agenticTools: true,
+        description: "Anthropic Sonnet via OpenRouter.",
       },
       {
         id: "openai/gpt-4.1",
         label: "GPT-4.1",
-        description: "OpenAI GPT-4.1 via OpenRouter. Full agent tools.",
-        agenticTools: true,
+        description: "OpenAI GPT-4.1 via OpenRouter.",
       },
       {
-        id: "meta-llama/llama-4-maverick",
-        label: "Llama 4 Maverick",
-        description: "Meta Llama 4 via OpenRouter. Chat only, no agent tools.",
-        agenticTools: false,
+        id: "openai/gpt-4o-mini",
+        label: "GPT-4o Mini",
+        description: "Fast OpenAI model via OpenRouter.",
       },
       {
-        id: "deepseek/deepseek-chat-v3-0324",
-        label: "DeepSeek V3",
-        description: "DeepSeek Chat via OpenRouter. Chat only, no agent tools.",
-        agenticTools: false,
+        id: "google/gemini-2.5-flash",
+        label: "Gemini 2.5 Flash",
+        description: "Google Flash via OpenRouter. Strong for agents and coding.",
+      },
+      {
+        id: "google/gemini-2.5-pro",
+        label: "Gemini 2.5 Pro",
+        description: "Google Pro via OpenRouter. Deeper reasoning and tools.",
+      },
+      {
+        id: "qwen/qwen3-coder-next",
+        label: "Qwen3 Coder Next",
+        description: "Alibaba Qwen coding model via OpenRouter.",
+      },
+      {
+        id: "mistralai/mistral-large-2512",
+        label: "Mistral Large 3",
+        description: "Mistral flagship via OpenRouter.",
+      },
+      {
+        id: "minimax/minimax-m3",
+        label: "MiniMax M3",
+        description: "MiniMax agentic model via OpenRouter.",
+      },
+      {
+        id: "meta-llama/llama-3.3-70b-instruct",
+        label: "Llama 3.3 70B",
+        description: "Meta open-weight model via OpenRouter.",
       },
     ],
     defaultModel: "anthropic/claude-sonnet-4",
@@ -323,7 +344,8 @@ export function modelSupportsAgenticTools(
 ): boolean {
   if (!providerId || !modelId) return true;
   const model = getModel(providerId, modelId);
-  if (!model) return true;
+  // Unknown OpenRouter slugs are not in the curated agentic catalog.
+  if (!model) return providerId !== "openrouter";
   return model.agenticTools !== false;
 }
 

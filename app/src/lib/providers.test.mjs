@@ -102,21 +102,40 @@ test("normalizeLegacyModel maps retired aliases, passes everything else through"
   assert.equal(normalizeLegacyModel("toString"), "toString");
 });
 
-test("modelSupportsAgenticTools flags chat-only OpenRouter models", () => {
+test("modelSupportsAgenticTools defaults true for catalog OpenRouter models", () => {
   assert.equal(
     modelSupportsAgenticTools("openrouter", "anthropic/claude-sonnet-4"),
     true,
   );
   assert.equal(modelSupportsAgenticTools("openrouter", "openai/gpt-4.1"), true);
   assert.equal(
+    modelSupportsAgenticTools("openrouter", "google/gemini-2.5-flash"),
+    true,
+  );
+  assert.equal(
+    modelSupportsAgenticTools("openrouter", "qwen/qwen3-coder-next"),
+    true,
+  );
+  assert.equal(modelSupportsAgenticTools("anthropic", "claude-sonnet-4-6"), true);
+});
+
+test("modelSupportsAgenticTools rejects unknown OpenRouter slugs", () => {
+  assert.equal(
     modelSupportsAgenticTools("openrouter", "deepseek/deepseek-chat-v3-0324"),
     false,
   );
+  assert.equal(modelSupportsAgenticTools("anthropic", "unknown-model"), true);
+});
+
+test("validModelOrNull drops retired OpenRouter models from the catalog", () => {
   assert.equal(
-    modelSupportsAgenticTools("openrouter", "meta-llama/llama-4-maverick"),
-    false,
+    validModelOrNull("openrouter", "deepseek/deepseek-chat-v3-0324"),
+    null,
   );
-  assert.equal(modelSupportsAgenticTools("anthropic", "claude-sonnet-4-6"), true);
+  assert.equal(
+    validModelOrNull("openrouter", "google/gemini-2.5-flash"),
+    "google/gemini-2.5-flash",
+  );
 });
 
 test("normalized legacy model resolves through validModelOrNull (no Opus->Sonnet downgrade)", () => {
