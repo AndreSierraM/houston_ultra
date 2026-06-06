@@ -4,6 +4,7 @@ import type { ProviderInfo, ComingSoonProviderInfo } from "../../lib/providers";
 import {
   ClaudeLogo,
   OpenAILogo,
+  OpenRouterLogo,
   GeminiLogo,
   DeepSeekLogo,
   MiniMaxLogo,
@@ -20,6 +21,10 @@ function ProviderLogo({ provider }: { provider: ProviderInfo }) {
       return <ClaudeLogo />;
     case "openai":
       return <OpenAILogo />;
+    case "openrouter":
+      return <OpenRouterLogo />;
+    case "gemini":
+      return <GeminiLogo />;
     default:
       return (
         <span className="text-[10px] font-semibold tracking-tight text-muted-foreground">
@@ -31,12 +36,6 @@ function ProviderLogo({ provider }: { provider: ProviderInfo }) {
 
 function ComingSoonLogo({ provider }: { provider: ComingSoonProviderInfo }) {
   switch (provider.id) {
-    case "gemini":
-      // Gemini has a real brand mark — Houston already ships the SVG
-      // for the active-provider card path, so reuse it here while
-      // Gemini sits in the coming-soon slot rather than falling back
-      // to the generic two-letter chip.
-      return <GeminiLogo />;
     case "deepseek":
       return <DeepSeekLogo />;
     case "minimax":
@@ -81,14 +80,14 @@ export function ProviderCard({
             ? t("card.signOutTitle", { name: provider.name })
             : t("card.connectTitle", { name: provider.name })
       }
-      className="group w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl bg-secondary hover:bg-black/[0.05] transition-colors focus-visible:outline-none focus-visible:bg-black/[0.05]"
+      className="group w-full min-w-0 overflow-hidden text-left flex items-center gap-3 px-3 py-2.5 rounded-xl bg-secondary hover:bg-black/[0.05] transition-colors focus-visible:outline-none focus-visible:bg-black/[0.05]"
     >
       <div className="size-8 rounded-lg bg-background flex items-center justify-center shrink-0">
         <ProviderLogo provider={provider} />
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-medium text-foreground truncate flex items-center gap-1.5">
-          {provider.name}
+      <div className="flex-1 min-w-0 overflow-hidden">
+        <p className="text-[13px] font-medium text-foreground flex items-center gap-1.5 min-w-0">
+          <span className="truncate">{provider.name}</span>
           {connected && (
             <span
               className="size-1.5 rounded-full bg-emerald-500 shrink-0"
@@ -119,12 +118,12 @@ export function ComingSoonCard({ provider }: { provider: ComingSoonProviderInfo 
   return (
     <div
       aria-disabled="true"
-      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-secondary opacity-60 cursor-not-allowed select-none"
+      className="w-full min-w-0 overflow-hidden flex items-center gap-3 px-3 py-2.5 rounded-xl bg-secondary opacity-60 cursor-not-allowed select-none"
     >
       <div className="size-8 rounded-lg bg-background flex items-center justify-center shrink-0">
         <ComingSoonLogo provider={provider} />
       </div>
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 overflow-hidden">
         <p className="text-[13px] font-medium text-foreground truncate">{provider.name}</p>
         <p className="text-[11px] text-muted-foreground truncate">{provider.subtitle}</p>
       </div>

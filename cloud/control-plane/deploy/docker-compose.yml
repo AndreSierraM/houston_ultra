@@ -1,0 +1,76 @@
+# Houston Cloud control plane — VPS production stack.
+# Public: Caddy on 80/443 (TLS). Internal: control-plane + Postgres only on the compose network.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: houston
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: houston_cloud
+    volumes:
+      - houston-cloud-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U houston -d houston_cloud"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  control-plane:
+    build:
+      context: ../../..
+      dockerfile: cloud/control-plane/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HOUSTON_CLOUD_BIND: 0.0.0.0:8788
+      DATABASE_URL: postgres://houston:${POSTGRES_PASSWORD}@postgres:5432/houston_cloud
+      HOUSTON_CLOUD_AUTH: ${HOUSTON_CLOUD_AUTH:-local}
+      HOUSTON_CLOUD_TOKEN: ${HOUSTON_CLOUD_TOKEN:-}
+      HOUSTON_CLOUD_LOCAL_USER_ID: ${HOUSTON_CLOUD_LOCAL_USER_ID:-00000000-0000-0000-0000-000000000001}
+      HOUSTON_CLOUD_LOCAL_EMAIL: ${HOUSTON_CLOUD_LOCAL_EMAIL:-}
+      HOUSTON_CLOUD_JWT_SECRET: ${HOUSTON_CLOUD_JWT_SECRET:-}
+      HOUSTON_ENGINE_IMAGE: ${HOUSTON_ENGINE_IMAGE:-houston/engine:dev}
+      HOUSTON_CLOUD_CORS_ORIGINS: ${HOUSTON_CLOUD_CORS_ORIGINS:-*}
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    expose:
+      - "8788"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8788' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      HOUSTON_CLOUD_DOMAIN: ${HOUSTON_CLOUD_DOMAIN:?set HOUSTON_CLOUD_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  houston-cloud-postgres:
+  caddy-data:
+  caddy-config:

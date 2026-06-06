@@ -76,6 +76,21 @@
     "codeCopyFailed": "No se pudo copiar el código",
     "cancel": "Cancelar"
   },
+  "dualPathConnect": {
+    "or": "o",
+    "useApiKeyInstead": "Usar clave de API en su lugar"
+  },
+  "cliConnect": {
+    "title": "Conectar {{name}}",
+    "description": "Inicia sesión con tu cuenta existente. Houston usa el mismo inicio de sesión de la CLI que en tu computador.",
+    "descriptionAnthropic": "Inicia sesión con tu suscripción de Claude. Houston usa el mismo inicio de sesión que Claude Code en tu computador.",
+    "descriptionOpenai": "Inicia sesión con tu cuenta de ChatGPT. Houston usa el mismo inicio de sesión que Codex en tu computador.",
+    "signInWith": "Iniciar sesión con {{name}}",
+    "signingIn": "Abriendo navegador...",
+    "signInFailed": "No se pudo iniciar la sesión de {{name}}",
+    "signInRecommended": "Recomendado. Usa tu suscripción existente.",
+    "cancel": "Cancelar"
+  },
   "geminiConnect": {
     "title": "Conectar {{name}}",
     "description": "Inicia sesión con tu cuenta de Google para usar el plan gratuito de Gemini, el mismo que usa la CLI gemini por fuera de Houston.",
@@ -85,6 +100,12 @@
     "signInRecommended": "Recomendado. Usa el plan personal gratuito, sin pago requerido.",
     "or": "o",
     "useApiKeyAdvanced": "Usar una llave de API (avanzado)",
+    "cancel": "Cancelar"
+  },
+  "apiKeyConnect": {
+    "title": "Conectar {{name}}",
+    "description": "Pega una llave de API desde la consola del proveedor. Houston la guarda localmente en tu computador.",
+    "connectButton": "Conectar {{name}}",
     "openConsole": "Abrir la consola de {{name}}",
     "openConsoleFailed": "No se pudo abrir la consola de {{name}}",
     "placeholder": "Pega tu llave aquí",
@@ -93,6 +114,10 @@
     "saveKey": "Guardar y conectar",
     "saving": "Guardando...",
     "saveFailed": "No se pudo guardar tu llave de {{name}}",
+    "saveUnavailable": "La conexión por clave de API para este proveedor aún no está disponible. Por ahora usa el inicio de sesión de arriba.",
     "cancel": "Cancelar"
+  },
+  "openrouterConnect": {
+    "description": "Crea una llave de API en OpenRouter y pégala aquí. Houston la usa solo para ejecutar tus agentes con Codex."
   }
 }

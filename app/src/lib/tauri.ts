@@ -30,6 +30,9 @@ import type {
   GenerateInstructionsResult,
 } from "@houston-ai/engine-client";
 import { getEngine } from "./engine";
+import { agentFromPath, currentAgent } from "./agent-lookup";
+import { resolveEngine } from "./engine-for-agent";
+import { isCloudAgent } from "./runtime-router";
 import { osPickDirectory } from "./os-bridge";
 import { logger } from "./logger";
 import { normalizeLegacyModel } from "./providers";
@@ -60,6 +63,8 @@ async function call<T>(
     throw err;
   }
 }
+
+export { agentFromPath } from "./agent-lookup";
 
 async function surfaceError(
   label: string,
@@ -218,7 +223,8 @@ export const tauriChat = {
         opts?.providerOverride,
         opts?.modelOverride,
       );
-      const res = await getEngine().startSession(agentPath, {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      const res = await engine.startSession(agentPath, {
         sessionKey,
         prompt,
         source: "desktop",
@@ -232,16 +238,19 @@ export const tauriChat = {
     }),
   startOnboarding: (agentPath: string, sessionKey: string) =>
     call<void>("start_onboarding_session", async () => {
-      await getEngine().startOnboarding(agentPath, sessionKey);
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.startOnboarding(agentPath, sessionKey);
     }),
   stop: (agentPath: string, sessionKey: string) =>
     call<void>("stop_session", async () => {
-      await getEngine().cancelSession(agentPath, sessionKey);
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.cancelSession(agentPath, sessionKey);
     }),
   loadHistory: (agentPath: string, sessionKey: string) =>
-    call<Array<{ feed_type: string; data: unknown }>>("load_chat_history", () =>
-      getEngine().loadChatHistory(agentPath, sessionKey),
-    ),
+    call<Array<{ feed_type: string; data: unknown }>>("load_chat_history", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return engine.loadChatHistory(agentPath, sessionKey);
+    }),
   summarize: (message: string) =>
     call<{ title: string; description: string }>("summarize_activity", () =>
       getEngine().summarizeActivity(message),
@@ -265,23 +274,34 @@ export const tauriAttachments = {
 
 export const tauriAgent = {
   readFile: (agentPath: string, relPath: string) =>
-    call<string>("read_agent_file", () => getEngine().readAgentFile(agentPath, relPath)),
+    call<string>("read_agent_file", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return engine.readAgentFile(agentPath, relPath);
+    }),
   writeFile: (agentPath: string, relPath: string, content: string) =>
-    call<void>("write_agent_file", () =>
-      getEngine().writeAgentFile(agentPath, relPath, content),
-    ),
+    call<void>("write_agent_file", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.writeAgentFile(agentPath, relPath, content);
+    }),
   seedSchemas: (agentPath: string) =>
-    call<void>("seed_agent_schemas", () => getEngine().seedAgentSchemas(agentPath)),
+    call<void>("seed_agent_schemas", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.seedAgentSchemas(agentPath);
+    }),
   migrateFiles: (agentPath: string) =>
-    call<void>("migrate_agent_files", () => getEngine().migrateAgentFiles(agentPath)),
+    call<void>("migrate_agent_files", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.migrateAgentFiles(agentPath);
+    }),
 };
 
 // ─── Skills ───────────────────────────────────────────────────────────
 
 export const tauriSkills = {
   list: (agentPath: string) =>
-    call<SkillSummary[]>("list_skills", async () =>
-      (await getEngine().listSkills(agentPath)).map((s) => ({
+    call<SkillSummary[]>("list_skills", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return (await engine.listSkills(agentPath)).map((s) => ({
         name: s.name,
         description: s.description,
         version: s.version,
@@ -302,30 +322,39 @@ export const tauriSkills = {
           options: i.options ?? [],
         })),
         prompt_template: s.promptTemplate ?? null,
-      })),
-    ),
+      }));
+    }),
   load: (agentPath: string, name: string) =>
-    call<SkillDetail>("load_skill", () => getEngine().loadSkill(agentPath, name)),
+    call<SkillDetail>("load_skill", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return engine.loadSkill(agentPath, name);
+    }),
   create: (agentPath: string, name: string, description: string, content: string) =>
-    call<void>("create_skill", () =>
-      getEngine().createSkill({ workspacePath: agentPath, name, description, content }),
-    ),
+    call<void>("create_skill", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.createSkill({ workspacePath: agentPath, name, description, content });
+    }),
   delete: (agentPath: string, name: string) =>
-    call<void>("delete_skill", () => getEngine().deleteSkill(agentPath, name)),
+    call<void>("delete_skill", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.deleteSkill(agentPath, name);
+    }),
   save: (agentPath: string, name: string, content: string) =>
-    call<void>("save_skill", () =>
-      getEngine().saveSkill(name, { workspacePath: agentPath, content }),
-    ),
+    call<void>("save_skill", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.saveSkill(name, { workspacePath: agentPath, content });
+    }),
   listFromRepo: (source: string) =>
     call<RepoSkill[]>("list_skills_from_repo", () => getEngine().listSkillsFromRepo(source)),
   installFromRepo: (agentPath: string, source: string, skills: RepoSkill[]) =>
-    call<string[]>("install_skills_from_repo", () =>
-      getEngine().installSkillsFromRepo({
+    call<string[]>("install_skills_from_repo", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return engine.installSkillsFromRepo({
         workspacePath: agentPath,
         source,
         skills,
-      }),
-    ),
+      });
+    }),
   searchCommunity: (query: string, signal?: AbortSignal) =>
     call<CommunitySkillResult[]>(
       "search_community_skills",
@@ -362,15 +391,17 @@ export const tauriSkills = {
   ) =>
     call<string>(
       "install_community_skill",
-      () =>
-        getEngine().installCommunitySkill(
+      async () => {
+        const engine = await resolveEngine(agentFromPath(agentPath));
+        return engine.installCommunitySkill(
           {
             workspacePath: agentPath,
             source,
             skillId,
           },
           signal,
-        ),
+        );
+      },
       undefined,
       { toast: false },
     ),
@@ -475,29 +506,35 @@ import { osOpenFile, osRevealAgent, osRevealFile } from "./os-bridge";
 
 export const tauriFiles = {
   list: (agentPath: string) =>
-    call<FileEntry[]>("list_project_files", async () =>
-      (await getEngine().listProjectFiles(agentPath)).map((f) => ({
+    call<FileEntry[]>("list_project_files", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return (await engine.listProjectFiles(agentPath)).map((f) => ({
         path: f.path,
         name: f.name,
         extension: f.extension,
         size: f.size,
         is_directory: f.is_directory,
         dateModified: f.date_modified,
-      })),
-    ),
+      }));
+    }),
   open: (agentPath: string, relativePath: string) =>
     osOpenFile(agentPath, relativePath),
   reveal: (agentPath: string, relativePath: string) =>
     osRevealFile(agentPath, relativePath),
   delete: (agentPath: string, relativePath: string) =>
-    call<void>("delete_file", () => getEngine().deleteFile(agentPath, relativePath)),
+    call<void>("delete_file", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.deleteFile(agentPath, relativePath);
+    }),
   rename: (agentPath: string, relativePath: string, newName: string) =>
-    call<void>("rename_file", () =>
-      getEngine().renameFile(agentPath, relativePath, newName),
-    ),
+    call<void>("rename_file", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.renameFile(agentPath, relativePath, newName);
+    }),
   createFolder: (agentPath: string, name: string) =>
     call<void>("create_agent_folder", async () => {
-      await getEngine().createFolder(agentPath, name);
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.createFolder(agentPath, name);
     }),
   revealAgent: (agentPath: string) => osRevealAgent(agentPath),
 };
@@ -551,13 +588,32 @@ interface RawConversation {
 
 export const tauriConversations = {
   list: (agentPath: string) =>
-    call<RawConversation[]>("list_conversations", async () =>
-      (await getEngine().listConversations(agentPath)).map(conversationToRaw),
-    ),
+    call<RawConversation[]>("list_conversations", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return (await engine.listConversations(agentPath)).map(conversationToRaw);
+    }),
   listAll: (agentPaths: string[]) =>
-    call<RawConversation[]>("list_all_conversations", async () =>
-      (await getEngine().listAllConversations(agentPaths)).map(conversationToRaw),
-    ),
+    call<RawConversation[]>("list_all_conversations", async () => {
+      const groups = new Map<
+        Awaited<ReturnType<typeof resolveEngine>>,
+        string[]
+      >();
+      for (const agentPath of agentPaths) {
+        const engine = await resolveEngine(agentFromPath(agentPath));
+        const paths = groups.get(engine);
+        if (paths) {
+          paths.push(agentPath);
+        } else {
+          groups.set(engine, [agentPath]);
+        }
+      }
+      const batches = await Promise.all(
+        [...groups.entries()].map(async ([engine, paths]) =>
+          (await engine.listAllConversations(paths)).map(conversationToRaw),
+        ),
+      );
+      return batches.flat();
+    }),
 };
 
 function conversationToRaw(
@@ -590,45 +646,59 @@ import type {
 
 export const tauriRoutines = {
   list: (agentPath: string) =>
-    call("list_routines", () => getEngine().listRoutines(agentPath)),
+    call("list_routines", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return engine.listRoutines(agentPath);
+    }),
   create: (agentPath: string, input: EngineNewRoutine) =>
-    call("create_routine", () => getEngine().createRoutine(agentPath, input)),
+    call("create_routine", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return engine.createRoutine(agentPath, input);
+    }),
   update: (
     agentPath: string,
     routineId: string,
     updates: EngineRoutineUpdate,
   ) =>
-    call("update_routine", () =>
-      getEngine().updateRoutine(agentPath, routineId, updates),
-    ),
+    call("update_routine", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return engine.updateRoutine(agentPath, routineId, updates);
+    }),
   delete: (agentPath: string, routineId: string) =>
-    call<void>("delete_routine", () =>
-      getEngine().deleteRoutine(agentPath, routineId),
-    ),
+    call<void>("delete_routine", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.deleteRoutine(agentPath, routineId);
+    }),
   listRuns: (agentPath: string, routineId?: string) =>
-    call("list_routine_runs", () =>
-      getEngine().listRoutineRuns(agentPath, routineId),
-    ),
+    call("list_routine_runs", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return engine.listRoutineRuns(agentPath, routineId);
+    }),
   runNow: (agentPath: string, routineId: string) =>
-    call<void>("run_routine_now", () =>
-      getEngine().runRoutineNow(agentPath, routineId),
-    ),
+    call<void>("run_routine_now", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.runRoutineNow(agentPath, routineId);
+    }),
   cancelRun: (agentPath: string, routineId: string, runId: string) =>
-    call("cancel_routine_run", () =>
-      getEngine().cancelRoutineRun(agentPath, routineId, runId),
-    ),
+    call("cancel_routine_run", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      return engine.cancelRoutineRun(agentPath, routineId, runId);
+    }),
   startScheduler: (agentPath: string) =>
-    call<void>("start_routine_scheduler", () =>
-      getEngine().startRoutineScheduler(agentPath),
-    ),
+    call<void>("start_routine_scheduler", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.startRoutineScheduler(agentPath);
+    }),
   stopScheduler: (agentPath: string) =>
-    call<void>("stop_routine_scheduler", () =>
-      getEngine().stopRoutineScheduler(agentPath),
-    ),
+    call<void>("stop_routine_scheduler", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.stopRoutineScheduler(agentPath);
+    }),
   syncScheduler: (agentPath: string) =>
-    call<void>("sync_routine_scheduler", () =>
-      getEngine().syncRoutineScheduler(agentPath),
-    ),
+    call<void>("sync_routine_scheduler", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.syncRoutineScheduler(agentPath);
+    }),
 };
 
 export const tauriActivity = {
@@ -700,10 +770,44 @@ export const tauriTerminal = {
 
 // ─── Agent config (per-agent JSON on disk) ────────────────────────────
 
+const CONFIG_REL_PATH = ".houston/config/config.json";
+
+async function readConfigForAgent(agentPath: string): Promise<configData.Config> {
+  const agent = agentFromPath(agentPath);
+  if (!agent || !isCloudAgent(agent)) {
+    return configData.read(agentPath);
+  }
+  const engine = await resolveEngine(agent);
+  const raw = await engine.readAgentFile(agentPath, CONFIG_REL_PATH);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as configData.Config;
+  } catch {
+    return {};
+  }
+}
+
+async function writeConfigForAgent(
+  agentPath: string,
+  config: configData.Config,
+): Promise<void> {
+  const agent = agentFromPath(agentPath);
+  if (!agent || !isCloudAgent(agent)) {
+    await configData.write(agentPath, config);
+    return;
+  }
+  const engine = await resolveEngine(agent);
+  await engine.writeAgentFile(
+    agentPath,
+    CONFIG_REL_PATH,
+    JSON.stringify(config, null, 2),
+  );
+}
+
 export const tauriConfig = {
-  read: (agentPath: string) => configData.read(agentPath),
+  read: (agentPath: string) => call("read_config", () => readConfigForAgent(agentPath)),
   write: (agentPath: string, config: configData.Config) =>
-    configData.write(agentPath, config),
+    call("write_config", () => writeConfigForAgent(agentPath, config)),
 };
 
 // ─── Preferences ──────────────────────────────────────────────────────
@@ -731,7 +835,8 @@ const DEFAULT_MODEL_PREF_KEY = "default_model";
 export const tauriProvider = {
   checkStatus: (provider: string) =>
     call<ProviderStatus>("check_provider_status", async () => {
-      const p: EngineProviderStatus = await getEngine().providerStatus(provider);
+      const engine = await resolveEngine(currentAgent());
+      const p: EngineProviderStatus = await engine.providerStatus(provider);
       return {
         provider: p.provider,
         cli_installed: p.cliInstalled,
@@ -743,12 +848,16 @@ export const tauriProvider = {
   getDefault: () =>
     call<string>(
       "get_default_provider",
-      async () => (await getEngine().getPreference(DEFAULT_PROVIDER_PREF_KEY)) ?? "",
+      async () => {
+        const engine = await resolveEngine(currentAgent());
+        return (await engine.getPreference(DEFAULT_PROVIDER_PREF_KEY)) ?? "";
+      },
     ),
   setDefault: (provider: string) =>
-    call<void>("set_default_provider", () =>
-      getEngine().setPreference(DEFAULT_PROVIDER_PREF_KEY, provider),
-    ),
+    call<void>("set_default_provider", async () => {
+      const engine = await resolveEngine(currentAgent());
+      await engine.setPreference(DEFAULT_PROVIDER_PREF_KEY, provider);
+    }),
   /**
    * Last (provider, model) pair the user picked anywhere — agent creation
    * dialog, AI-assist step, or chat-tab model picker. Used as the default
@@ -770,7 +879,7 @@ export const tauriProvider = {
     call<{ provider: string | null; model: string | null }>(
       "get_last_used_provider",
       async () => {
-        const eng = getEngine();
+        const eng = await resolveEngine(currentAgent());
         const [provider, model] = await Promise.all([
           eng.getPreference(DEFAULT_PROVIDER_PREF_KEY),
           eng.getPreference(DEFAULT_MODEL_PREF_KEY),
@@ -780,14 +889,20 @@ export const tauriProvider = {
     ),
   setLastUsed: (provider: string, model: string) =>
     call<void>("set_last_used_provider", async () => {
-      const eng = getEngine();
+      const eng = await resolveEngine(currentAgent());
       await eng.setPreference(DEFAULT_PROVIDER_PREF_KEY, provider);
       await eng.setPreference(DEFAULT_MODEL_PREF_KEY, model);
     }),
   launchLogin: (provider: string, opts?: { deviceAuth?: boolean }) =>
-    call<void>("launch_provider_login", () => getEngine().providerLogin(provider, opts)),
+    call<void>("launch_provider_login", async () => {
+      const engine = await resolveEngine(currentAgent());
+      await engine.providerLogin(provider, opts);
+    }),
   launchLogout: (provider: string) =>
-    call<void>("launch_provider_logout", () => getEngine().providerLogout(provider)),
+    call<void>("launch_provider_logout", async () => {
+      const engine = await resolveEngine(currentAgent());
+      await engine.providerLogout(provider);
+    }),
   /**
    * Submit the OAuth verification code the user pasted from their
    * browser. Only meaningful for remote/headless engines (container,
@@ -797,9 +912,10 @@ export const tauriProvider = {
    * call relays the code back to the CLI's stdin.
    */
   submitLoginCode: (provider: string, code: string) =>
-    call<void>("submit_provider_login_code", () =>
-      getEngine().submitProviderLoginCode(provider, code),
-    ),
+    call<void>("submit_provider_login_code", async () => {
+      const engine = await resolveEngine(currentAgent());
+      await engine.submitProviderLoginCode(provider, code);
+    }),
   /**
    * Abort an in-flight sign-in the user gave up on (closed the OAuth
    * tab, stuck spinner). Kills the CLI subprocess on the engine and
@@ -810,7 +926,10 @@ export const tauriProvider = {
    * pending spinners clear without an error toast.
    */
   cancelLogin: (provider: string) =>
-    call<void>("cancel_provider_login", () => getEngine().cancelProviderLogin(provider)),
+    call<void>("cancel_provider_login", async () => {
+      const engine = await resolveEngine(currentAgent());
+      await engine.cancelProviderLogin(provider);
+    }),
   /**
    * Save a Gemini API key to `~/.gemini/.env` via the engine. Errors
    * surface through `call`'s standard rejection path; the caller is
@@ -820,7 +939,25 @@ export const tauriProvider = {
    * Never log `apiKey` — it's a SECRET.
    */
   setGeminiApiKey: (apiKey: string) =>
-    call<void>("set_gemini_api_key", () => getEngine().setGeminiApiKey(apiKey)),
+    call<void>("set_gemini_api_key", async () => {
+      const engine = await resolveEngine(currentAgent());
+      await engine.setGeminiApiKey(apiKey);
+    }),
+  setOpenRouterApiKey: (apiKey: string) =>
+    call<void>("set_openrouter_api_key", async () => {
+      const engine = await resolveEngine(currentAgent());
+      await engine.setOpenRouterApiKey(apiKey);
+    }),
+  setAnthropicApiKey: (apiKey: string) =>
+    call<void>("set_anthropic_api_key", async () => {
+      const engine = await resolveEngine(currentAgent());
+      await engine.setAnthropicApiKey(apiKey);
+    }),
+  setOpenAiApiKey: (apiKey: string) =>
+    call<void>("set_openai_api_key", async () => {
+      const engine = await resolveEngine(currentAgent());
+      await engine.setOpenAiApiKey(apiKey);
+    }),
 };
 
 // ─── System (OS-native helpers, preserved for back-compat) ────────────
@@ -849,7 +986,10 @@ export type ClaudeStatus = EngineClaudeStatus;
  */
 export const tauriClaude = {
   status: () =>
-    call<ClaudeStatus>("claude_status", () => getEngine().claudeStatus()),
+    call<ClaudeStatus>("claude_status", async () => {
+      const engine = await resolveEngine(currentAgent());
+      return engine.claudeStatus();
+    }),
   /**
    * Triggers the background install. Errors are deliberately not
    * auto-toasted by `call` — both callers (the onboarding card hook and
@@ -859,7 +999,10 @@ export const tauriClaude = {
   install: () =>
     call<void>(
       "claude_install",
-      () => getEngine().claudeInstall(),
+      async () => {
+        const engine = await resolveEngine(currentAgent());
+        await engine.claudeInstall();
+      },
       undefined,
       // Both callers (onboarding card + ClaudeCliFailed retry) surface and
       // report failures themselves; capture here would double-report.
@@ -871,8 +1014,17 @@ export const tauriClaude = {
 
 export const tauriWatcher = {
   start: (agentPath: string) =>
-    call<void>("start_agent_watcher", () => getEngine().startAgentWatcher(agentPath)),
-  stop: () => call<void>("stop_agent_watcher", () => getEngine().stopAgentWatcher()),
+    call<void>("start_agent_watcher", async () => {
+      const engine = await resolveEngine(agentFromPath(agentPath));
+      await engine.startAgentWatcher(agentPath);
+    }),
+  stop: (agentPath?: string) =>
+    call<void>("stop_agent_watcher", async () => {
+      const engine = await resolveEngine(
+        agentPath ? agentFromPath(agentPath) : currentAgent(),
+      );
+      await engine.stopAgentWatcher();
+    }),
 };
 
 // ─── Tunnel (mobile pairing) ──────────────────────────────────────────

@@ -47,7 +47,7 @@
       "workspaceName": "Personal",
       "assistantName": "Personal assistant",
       "focus": "Help me stay organized, prepare my day, draft messages, protect focus time, and keep track of follow-ups.",
-      "approvalRule": "Ask before sending messages, creating calendar events, or changing anything in connected apps.",
+      "approvalRule": "Ask before sending messages, creating calendar events, deleting data, or changing anything in connected apps.",
       "firstWorkflow": "Set up my first useful daily workflow"
     },
     "missions": {

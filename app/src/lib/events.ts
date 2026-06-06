@@ -18,6 +18,8 @@
 import type { HoustonEvent } from "@houston-ai/core";
 import { topics } from "@houston-ai/engine-client";
 import { getEngineWs } from "./engine";
+import { ensureAgentEngineWs, isCloudAgent } from "./runtime-router";
+import type { Agent } from "./types";
 import { legacyEmit, legacyListen } from "./os-bridge";
 
 type Unsub = () => void;
@@ -33,7 +35,37 @@ function toHandler<T>(handler: (ev: T) => void) {
  * `EngineWebSocket` de-duplicates subscriptions, so the firehose topic is
  * added once regardless of how many UI hooks mount.
  */
-export function subscribeHoustonEvents(handler: (ev: HoustonEvent) => void): Unsub {
+/**
+ * Subscribe to Houston events.
+ *
+ * Without `agent`, always uses the local engine firehose (provider login,
+ * Composio, Claude install, etc.). With a cloud agent, connects through
+ * the cloud WS proxy for that agent's engine events.
+ */
+export function subscribeHoustonEvents(
+  handler: (ev: HoustonEvent) => void,
+  agent?: Agent | null,
+): Unsub {
+  if (agent && isCloudAgent(agent)) {
+    let cancelled = false;
+    let innerUnsub: Unsub | undefined;
+    ensureAgentEngineWs(agent)
+      .then((ws) => {
+        if (cancelled) return;
+        ws.subscribe([topics.firehose]);
+        innerUnsub = ws.onEvent(toHandler(handler));
+      })
+      .catch(async (err: unknown) => {
+        const { showErrorToast } = await import("./error-toast");
+        const message = err instanceof Error ? err.message : String(err);
+        showErrorToast("cloud-ws", message, err);
+      });
+    return () => {
+      cancelled = true;
+      innerUnsub?.();
+    };
+  }
+
   const ws = getEngineWs();
   ws.subscribe([topics.firehose]);
   return ws.onEvent(toHandler(handler));

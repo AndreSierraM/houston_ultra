@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1, "project": "houston-cloud-agents",
+  "goal": "Create functional 24/7 cloud agents from the existing Houston agent creation flow, using real houston-engine containers and subscription entitlements.", "runtimeModes": ["local", "cloud_24_7"],
+  "phases": [
+    {
+      "id": "p1",
+      "name": "Control plane foundation",
+      "area": "cloud/backend",
+      "exitGate": "Authenticated user can read entitlements and cloud agent list."
+    },
+    {
+      "id": "p2",
+      "name": "Docker runtime on VPS",
+      "area": "cloud/runtime",
+      "exitGate": "Creating a cloud agent starts a private houston-engine container with a persistent volume."
+    },
+    {
+      "id": "p3",
+      "name": "Engine proxy",
+      "area": "cloud/backend",
+      "exitGate": "Control plane proxies REST and WebSocket traffic to the private engine."
+    },
+    {
+      "id": "p4",
+      "name": "Frontend creation flow",
+      "area": "app/frontend",
+      "exitGate": "Naming step lets the user choose Local or Cloud 24/7 without a new UI."
+    },
+    {
+      "id": "p5",
+      "name": "Provider login in cloud",
+      "area": "app+cloud",
+      "exitGate": "Claude/Codex/Gemini auth happens against the cloud engine and persists in its volume."
+    },
+    {
+      "id": "p6",
+      "name": "Cloud sharing",
+      "area": "app+cloud",
+      "exitGate": "Cloud agent owner can share access with another user and revoke it."
+    },
+    {
+      "id": "p7",
+      "name": "VPS production hardening",
+      "area": "ops",
+      "exitGate": "Only the control plane is public, engines are private, backups and logs exist."
+    },
+    {
+      "id": "p8",
+      "name": "K3s migration",
+      "area": "cloud/runtime",
+      "exitGate": "Runtime backend can provision the same cloud agent contract on K3s."
+    }
+  ],
+  "features": [
+    {
+      "id": "cloud-entitlements",
+      "phase": "p1",
+      "priority": 1,
+      "area": "cloud/backend",
+      "description": "Store and enforce subscription entitlement for cloud agents.",
+      "files": ["cloud/control-plane/src/entitlements.rs"],
+      "acceptance": ["inactive users cannot create cloud agents", "active users respect max_cloud_agents"]
+    },
+    {
+      "id": "cloud-auth",
+      "phase": "p1",
+      "priority": 1,
+      "area": "cloud/backend",
+      "description": "Validate Supabase JWT and resolve user, organization and role.",
+      "files": ["cloud/control-plane/src/auth.rs"],
+      "acceptance": ["missing bearer returns 401", "valid bearer resolves principal", "revoked user returns 403"]
+    },
+    {
+      "id": "cloud-agent-model",
+      "phase": "p1",
+      "priority": 1,
+      "area": "cloud/backend",
+      "description": "Persist cloud agent metadata, runtime state and share rows.",
+      "files": ["cloud/control-plane/src/agents.rs"],
+      "acceptance": ["cloud agent list is filtered by user", "share roles are enforced"]
+    },
+    {
+      "id": "docker-runtime",
+      "phase": "p2",
+      "priority": 1,
+      "area": "cloud/runtime",
+      "description": "Provision one private houston-engine container and volume per cloud agent.",
+      "files": ["cloud/control-plane/src/docker_runtime.rs"],
+      "acceptance": ["container starts with unique HOUSTON_ENGINE_TOKEN", "container has persistent volume", "container does not publish host port"]
+    },
+    {
+      "id": "cloud-agent-create-api",
+      "phase": "p2",
+      "priority": 1,
+      "area": "cloud/backend",
+      "description": "Create a cloud agent through POST /v1/cloud/agents.",
+      "files": ["cloud/control-plane/src/agents.rs"],
+      "acceptance": ["returns Agent-shaped payload", "rolls back metadata if provisioning fails", "surfaces real error message"]
+    },
+    {
+      "id": "engine-rest-proxy",
+      "phase": "p3",
+      "priority": 1,
+      "area": "cloud/backend",
+      "description": "Proxy authorized REST calls from control plane to the private engine.",
+      "files": ["cloud/control-plane/src/proxy.rs"],
+      "acceptance": ["unauthorized agent returns 403", "engine token is never exposed", "health/version proxy works"]
+    },
+    {
+      "id": "engine-ws-proxy",
+      "phase": "p3",
+      "priority": 1,
+      "area": "cloud/backend",
+      "description": "Bridge WebSocket frames between Houston App and cloud engine.",
+      "files": ["cloud/control-plane/src/ws_proxy.rs"],
+      "acceptance": ["events stream to UI", "permission loss closes socket", "disconnects are logged"]
+    },
+    {
+      "id": "agent-runtime-types",
+      "phase": "p4",
+      "priority": 1,
+      "area": "app+ui",
+      "description": "Add runtime mode to Agent and CreateAgent types.",
+      "files": ["ui/engine-client/src/types.ts", "app/src/lib/types.ts"],
+      "acceptance": ["local agents default to local", "cloud agents carry cloud_24_7"]
+    },
+    {
+      "id": "naming-runtime-selector",
+      "phase": "p4",
+      "priority": 1,
+      "area": "app/frontend",
+      "description": "Add Local vs Cloud 24/7 selector to the existing naming/color step.",
+      "files": ["app/src/components/shell/naming-step.tsx", "app/src/components/shell/ai-review-step.tsx", "app/src/locales/en/shell.json", "app/src/locales/es/shell.json", "app/src/locales/pt/shell.json"],
+      "acceptance": ["selector appears in normal create flow", "selector appears in AI create flow", "copy is localized"]
+    },
+    {
+      "id": "cloud-client",
+      "phase": "p4",
+      "priority": 1,
+      "area": "app/frontend",
+      "description": "Add frontend client for cloud control plane using the signed-in Supabase session.",
+      "files": ["app/src/lib/cloud-client.ts"],
+      "acceptance": ["sends bearer token", "surfaces errors through existing toast path"]
+    },
+    {
+      "id": "runtime-router",
+      "phase": "p4",
+      "priority": 1,
+      "area": "app/frontend",
+      "description": "Route agent operations to local engine or cloud proxy based on agent.runtime.",
+      "files": ["app/src/lib/runtime-router.ts", "app/src/stores/agents.ts", "app/src/lib/tauri.ts"],
+      "acceptance": ["local behavior is unchanged", "cloud chat uses cloud engine", "cloud agents activate watcher scheduler and WS like local"]
+    },
+    {
+      "id": "harness-parity",
+      "phase": "p4",
+      "priority": 1,
+      "area": "app+engine",
+      "description": "Keep CLI harness parity for cloud agents and provider API keys. API keys inject env at spawn; they do not replace terminal-manager.",
+      "files": [
+        "app/src/lib/activate-agent-runtime.ts",
+        "app/src/lib/runtime-router.ts",
+        "app/src/lib/provider-api-key.ts",
+        "engine/houston-terminal-manager/src/session_dispatch.rs",
+        "knowledge-base/cloud-harness.md"
+      ],
+      "acceptance": [
+        "setCurrent and create call activateAgentRuntime for cloud and local",
+        "provider prefs and status resolve through current agent engine",
+        "openrouter and dual-path api keys still spawn codex or claude",
+        "docs state api key is not http-only loop"
+      ]
+    },
+    {
+      "id": "provider-login-cloud",
+      "phase": "p5",
+      "priority": 1,
+      "area": "app+cloud",
+      "description": "Run provider status and login flows against the cloud agent engine.",
+      "files": ["app/src/components/shell/provider-login-dialog.tsx"],
+      "acceptance": ["Codex device auth works in cloud", "Claude paste-back works in cloud", "Gemini API key persists in cloud volume"]
+    },
+    {
+      "id": "cloud-agent-share",
+      "phase": "p6",
+      "priority": 2,
+      "area": "app+cloud",
+      "description": "Share a live cloud agent with another user using existing share surfaces.",
+      "files": ["app/src/components/portable/export-wizard.tsx"],
+      "acceptance": ["owner can add user role", "recipient sees shared agent", "revoked user loses access"]
+    },
+    {
+      "id": "audit-events",
+      "phase": "p6",
+      "priority": 2,
+      "area": "cloud/backend",
+      "description": "Persist audit records for cloud agent creation, proxy access, sharing and denied access.",
+      "files": ["cloud/control-plane/src/audit.rs"],
+      "acceptance": ["403 attempts are logged", "share changes are logged", "runtime restarts are logged"]
+    },
+    {
+      "id": "vps-deploy",
+      "phase": "p7",
+      "priority": 2,
+      "area": "ops",
+      "description": "Deploy control plane, Postgres, TLS and Docker runtime on the VPS.",
+      "files": ["cloud/control-plane/deploy/docker-compose.yml"],
+      "acceptance": ["only 443 is public", "engines are private", "restart survives VPS reboot"]
+    },
+    {
+      "id": "k3s-runtime",
+      "phase": "p8",
+      "priority": 3,
+      "area": "cloud/runtime",
+      "description": "Add K3s runtime backend behind the same cloud agent contract.",
+      "files": ["cloud/control-plane/src/k8s_runtime.rs", "cloud/k8s/base"],
+      "acceptance": ["namespace per org", "PVC per agent", "NetworkPolicy default deny", "ResourceQuota and LimitRange applied"]
+    }
+  ]
+}

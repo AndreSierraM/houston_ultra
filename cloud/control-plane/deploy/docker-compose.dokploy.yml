@@ -1,0 +1,30 @@
+# Houston Cloud — Dokploy + Supabase Postgres externo (sin Postgres local).
+# Dominio: cloudhouston.blyxlabs.dev → control-plane:8788
+
+services:
+  control-plane:
+    build:
+      context: ../../..
+      dockerfile: cloud/control-plane/Dockerfile
+    restart: unless-stopped
+    environment:
+      HOUSTON_CLOUD_BIND: 0.0.0.0:8788
+      DATABASE_URL: postgresql://postgres.vfdydumriboswopwrakb:${SUPABASE_DB_PASSWORD:?set SUPABASE_DB_PASSWORD}@aws-1-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require
+      HOUSTON_CLOUD_AUTH: ${HOUSTON_CLOUD_AUTH:-local}
+      HOUSTON_CLOUD_TOKEN: ${HOUSTON_CLOUD_TOKEN:-}
+      HOUSTON_CLOUD_LOCAL_USER_ID: ${HOUSTON_CLOUD_LOCAL_USER_ID:-00000000-0000-0000-0000-000000000001}
+      HOUSTON_CLOUD_LOCAL_EMAIL: ${HOUSTON_CLOUD_LOCAL_EMAIL:-}
+      HOUSTON_CLOUD_JWT_SECRET: ${HOUSTON_CLOUD_JWT_SECRET:-}
+      HOUSTON_ENGINE_IMAGE: ${HOUSTON_ENGINE_IMAGE:-houston/engine:dev}
+      HOUSTON_CLOUD_CORS_ORIGINS: ${HOUSTON_CLOUD_CORS_ORIGINS:-*}
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8788:8788"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8788' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s

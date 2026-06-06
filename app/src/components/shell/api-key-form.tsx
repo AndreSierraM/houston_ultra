@@ -2,28 +2,22 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ExternalLink, Eye, EyeOff } from "lucide-react";
 import { Button, Spinner } from "@houston-ai/core";
-import { tauriProvider, tauriSystem } from "../../lib/tauri";
+import { saveProviderApiKey } from "../../lib/provider-api-key";
+import { tauriSystem } from "../../lib/tauri";
 import { useUIStore } from "../../stores/ui";
 import { analytics } from "../../lib/analytics";
 
-/**
- * "Advanced" path inside the Gemini connect dialog: paste an API key.
- * Writes through `tauriProvider.setGeminiApiKey` which atomically
- * persists `GEMINI_API_KEY=...` to `~/.gemini/.env` so the bundled
- * gemini CLI picks it up on the next spawn.
- *
- * Kept separate from the OAuth flow so the dialog stays a thin
- * stage-router and so this paste form can be reused (e.g. settings
- * pane) without dragging the OAuth state machine along.
- */
-export function GeminiApiKeyForm(props: {
+export function ApiKeyForm(props: {
   providerName: string;
   providerId: string;
   apiKeyConsoleUrl: string;
+  /** When false, shows the form but save stays disabled until backend lands. */
+  saveEnabled?: boolean;
   onSaved: () => void;
 }) {
   const { t } = useTranslation("providers");
   const addToast = useUIStore((s) => s.addToast);
+  const saveEnabled = props.saveEnabled ?? true;
 
   const [apiKey, setApiKey] = useState("");
   const [revealed, setRevealed] = useState(false);
@@ -31,7 +25,7 @@ export function GeminiApiKeyForm(props: {
   const [error, setError] = useState<string | null>(null);
 
   const trimmed = apiKey.trim();
-  const canSave = trimmed.length >= 10 && !saving;
+  const canSave = saveEnabled && trimmed.length >= 10 && !saving;
 
   const handleOpenConsole = async () => {
     if (!props.apiKeyConsoleUrl) return;
@@ -40,7 +34,7 @@ export function GeminiApiKeyForm(props: {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addToast({
-        title: t("geminiConnect.openConsoleFailed", { name: props.providerName }),
+        title: t("apiKeyConnect.openConsoleFailed", { name: props.providerName }),
         description: msg,
         variant: "error",
       });
@@ -53,14 +47,14 @@ export function GeminiApiKeyForm(props: {
     setError(null);
     setSaving(true);
     try {
-      await tauriProvider.setGeminiApiKey(trimmed);
+      await saveProviderApiKey(props.providerId, trimmed);
       analytics.track("provider_configured", { provider: props.providerId });
       props.onSaved();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
       addToast({
-        title: t("geminiConnect.saveFailed", { name: props.providerName }),
+        title: t("apiKeyConnect.saveFailed", { name: props.providerName }),
         description: msg,
         variant: "error",
       });
@@ -70,24 +64,27 @@ export function GeminiApiKeyForm(props: {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 pt-1">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={handleOpenConsole}
-        className="self-start gap-1.5"
-      >
-        <ExternalLink className="size-3.5" />
-        {t("geminiConnect.openConsole", { name: props.providerName })}
-      </Button>
-      <div className="flex items-center gap-2">
+    <form onSubmit={handleSubmit} className="min-w-0 space-y-3 pt-1">
+      {props.apiKeyConsoleUrl ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handleOpenConsole}
+          className="max-w-full gap-1.5 self-start"
+          title={props.apiKeyConsoleUrl}
+        >
+          <ExternalLink className="size-3.5 shrink-0" />
+          <span className="truncate">{t("apiKeyConnect.openConsole", { name: props.providerName })}</span>
+        </Button>
+      ) : null}
+      <div className="flex min-w-0 items-center gap-2">
         <input
           type={revealed ? "text" : "password"}
           value={apiKey}
           onChange={(ev) => setApiKey(ev.target.value)}
-          placeholder={t("geminiConnect.placeholder")}
-          className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          placeholder={t("apiKeyConnect.placeholder")}
+          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
@@ -99,21 +96,24 @@ export function GeminiApiKeyForm(props: {
           variant="outline"
           size="sm"
           onClick={() => setRevealed((v) => !v)}
-          className="gap-1.5 shrink-0"
-          aria-label={revealed ? t("geminiConnect.hide") : t("geminiConnect.show")}
+          className="shrink-0 gap-1.5"
+          aria-label={revealed ? t("apiKeyConnect.hide") : t("apiKeyConnect.show")}
           disabled={saving}
         >
           {revealed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
         </Button>
       </div>
-      {error && (
+      {!saveEnabled ? (
+        <p className="text-[12px] text-muted-foreground">{t("apiKeyConnect.saveUnavailable")}</p>
+      ) : null}
+      {error ? (
         <p className="text-[12px] text-destructive" role="alert">
           {error}
         </p>
-      )}
-      <Button type="submit" disabled={!canSave} className="gap-1.5 w-full" size="sm">
+      ) : null}
+      <Button type="submit" disabled={!canSave} className="w-full gap-1.5" size="sm">
         {saving && <Spinner className="size-3.5" />}
-        {saving ? t("geminiConnect.saving") : t("geminiConnect.saveKey")}
+        {saving ? t("apiKeyConnect.saving") : t("apiKeyConnect.saveKey")}
       </Button>
     </form>
   );

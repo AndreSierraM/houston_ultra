@@ -47,7 +47,7 @@
       "workspaceName": "Pessoal",
       "assistantName": "Assistente pessoal",
       "focus": "Me ajude a ficar organizado, preparar meu dia, redigir mensagens, proteger tempo de foco e acompanhar pendências.",
-      "approvalRule": "Pergunte antes de enviar mensagens, criar eventos de calendário ou mudar algo nos apps conectados.",
+      "approvalRule": "Pergunte antes de enviar mensagens, criar eventos de calendário, apagar dados ou mudar algo nos apps conectados.",
       "firstWorkflow": "Configure meu primeiro fluxo útil do dia"
     },
     "missions": {

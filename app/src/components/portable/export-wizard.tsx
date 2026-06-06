@@ -24,6 +24,8 @@ import {
 import { useUIStore } from "../../stores/ui";
 import { useAgentStore } from "../../stores/agents";
 import { getEngine } from "../../lib/engine";
+import { isCloudAgent } from "../../lib/runtime-router";
+import { CloudShareWizard } from "./cloud-share-wizard";
 import { osRevealPath } from "../../lib/os-bridge";
 import { analytics } from "../../lib/analytics";
 import { IntegrationLogos } from "../integration-logos";
@@ -250,6 +252,12 @@ export function ExportAgentWizard() {
   };
 
   if (!open) return null;
+
+  if (agent && isCloudAgent(agent)) {
+    return (
+      <CloudShareWizard agent={agent} open={open} onClose={handleClose} />
+    );
+  }
 
   const canAdvance =
     step === 1

@@ -4,6 +4,7 @@ import {
   Check,
   CircleDashed,
   ExternalLink,
+  KeyRound,
   Loader2,
   RefreshCw,
   Terminal,
@@ -16,8 +17,10 @@ import {
   type ProviderInfo,
   type ComingSoonProviderInfo,
 } from "../../../lib/providers";
+import { isApiKeyOnlyProvider } from "../../../lib/provider-api-key";
 import { useClaudeInstall, type ClaudeInstallState } from "../../../hooks/use-claude-install";
 import { ClaudeInstallHint } from "../../shell/claude-install-hint";
+import { ProviderConnectDialog } from "../../shell/provider-connect-dialog";
 
 interface BrainMissionProps {
   provider: string | null;
@@ -34,6 +37,7 @@ export function BrainMission({
   const [statuses, setStatuses] = useState<Record<string, ProviderStatus>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [apiKeyDialogFor, setApiKeyDialogFor] = useState<ProviderInfo | null>(null);
 
   const refresh = useCallback(async () => {
     const entries = await Promise.all(
@@ -80,44 +84,62 @@ export function BrainMission({
   };
 
   return (
-    <div className="flex flex-1 flex-col gap-6">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {PROVIDERS.map((prov) => (
-          <ProviderCard
-            key={prov.id}
-            provider={prov}
-            status={statuses[prov.id]}
-            loading={loading}
-            selected={provider === prov.id}
-            onSelect={(modelId) => onSelect(prov.id, modelId)}
-            onRefresh={refresh}
-            costLabel={prov.cost}
-            claudeInstall={prov.id === "anthropic" ? claudeInstall : null}
-          />
-        ))}
-        {COMING_SOON_PROVIDERS.map((prov) => (
-          <ComingSoonCard key={prov.id} provider={prov} />
-        ))}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {PROVIDERS.map((prov) => (
+            <ProviderCard
+              key={prov.id}
+              provider={prov}
+              status={statuses[prov.id]}
+              loading={loading}
+              selected={provider === prov.id}
+              onSelect={(modelId) => onSelect(prov.id, modelId)}
+              onRefresh={refresh}
+              onConnectApiKey={() => setApiKeyDialogFor(prov)}
+              costLabel={prov.cost}
+              claudeInstall={prov.id === "anthropic" ? claudeInstall : null}
+            />
+          ))}
+          {COMING_SOON_PROVIDERS.map((prov) => (
+            <ComingSoonCard key={prov.id} provider={prov} />
+          ))}
+        </div>
       </div>
-      <div className="flex justify-end">
-        <Button
-          className="rounded-full"
-          disabled={!selectedConnected || submitting}
-          onClick={() => void handleContinue()}
-        >
-          {submitting ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : null}
-          {submitting
-            ? t("setup:tutorial.missions.brain.creating")
-            : t("setup:tutorial.missions.brain.continue")}
-        </Button>
+      <div className="shrink-0 space-y-3 pt-4">
+        <div className="flex justify-end">
+          <Button
+            className="rounded-full"
+            disabled={!selectedConnected || submitting}
+            onClick={() => void handleContinue()}
+          >
+            {submitting ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : null}
+            {submitting
+              ? t("setup:tutorial.missions.brain.creating")
+              : t("setup:tutorial.missions.brain.continue")}
+          </Button>
+        </div>
+        {selectedConnected && !submitting && (
+          <p className="text-xs text-muted-foreground">
+            {t("setup:tutorial.missions.brain.continueHint")}
+          </p>
+        )}
       </div>
-      {selectedConnected && !submitting && (
-        <p className="text-xs text-muted-foreground">
-          {t("setup:tutorial.missions.brain.continueHint")}
-        </p>
-      )}
+
+      <ProviderConnectDialog
+        provider={apiKeyDialogFor}
+        onOpenChange={(open) => {
+          if (!open) setApiKeyDialogFor(null);
+        }}
+        onSaved={() => {
+          void refresh();
+        }}
+        onLoginStarted={() => {
+          void refresh();
+        }}
+      />
     </div>
   );
 }
@@ -129,6 +151,7 @@ function ProviderCard({
   selected,
   onSelect,
   onRefresh,
+  onConnectApiKey,
   costLabel,
   claudeInstall,
 }: {
@@ -138,6 +161,7 @@ function ProviderCard({
   selected: boolean;
   onSelect: (modelId: string) => void;
   onRefresh: () => Promise<void>;
+  onConnectApiKey: () => void;
   costLabel: string;
   /** Live install state for Houston-managed CLIs. Pass `null` for any
    *  provider that ships a bundled CLI — the generic install hint
@@ -156,6 +180,10 @@ function ProviderCard({
   const handleSignIn = async () => {
     setLoginError(null);
     handlePick();
+    if (isApiKeyOnlyProvider(provider)) {
+      onConnectApiKey();
+      return;
+    }
     try {
       await tauriProvider.launchLogin(provider.id);
       setLoginLaunched(true);
@@ -319,8 +347,14 @@ function SetupHint({
       )}
       {installed && !loginLaunched && (
         <Button size="sm" className="rounded-full" onClick={onSignIn}>
-          <ExternalLink className="size-3.5" />
-          {t("providers:setup.signInWith", { provider: provider.name })}
+          {isApiKeyOnlyProvider(provider) ? (
+            <KeyRound className="size-3.5" />
+          ) : (
+            <ExternalLink className="size-3.5" />
+          )}
+          {isApiKeyOnlyProvider(provider)
+            ? t("providers:apiKeyConnect.connectButton", { name: provider.name })
+            : t("providers:setup.signInWith", { provider: provider.name })}
         </Button>
       )}
       {installed && loginLaunched && (

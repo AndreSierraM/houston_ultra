@@ -16,6 +16,7 @@ import type { SuggestedIntegration, SuggestedRoutine } from "@houston-ai/engine-
 import type { RoutineFormData } from "@houston-ai/routines";
 import type { StoreListing } from "../../lib/types";
 import { getDefaultModel } from "../../lib/providers";
+import { isConfigProvider } from "../../data/config";
 import { StoreStep } from "./store-step";
 import { NamingStep } from "./naming-step";
 import { AiAssistStep } from "./ai-assist-step";
@@ -23,6 +24,13 @@ import { AiReviewStep } from "./ai-review-step";
 import { AiRoutineStep } from "./ai-routine-step";
 import { AiIntegrationsStep } from "./ai-integrations-step";
 import { DEFAULT_TAB_ID } from "../../agents/standard-tabs";
+import {
+  hasCloudToken,
+  isCloudAvailable,
+  isCloudConfigured,
+  type AgentRuntimeMode,
+} from "../../lib/cloud-client";
+import { isAuthConfigured } from "../../lib/supabase";
 
 type Step = 1 | "ai-assist" | "ai-integrations" | "ai-routine" | "ai-review" | 2;
 
@@ -55,6 +63,7 @@ export function CreateAgentDialog() {
   const [existingPath, setExistingPath] = useState<string | null>(null);
   const [provider, setProvider] = useState<string>("anthropic");
   const [model, setModel] = useState<string>(getDefaultModel("anthropic"));
+  const [runtimeMode, setRuntimeMode] = useState<AgentRuntimeMode>("local");
 
   // Reset form on close. On open, sync the picker to the sticky last-used
   // pair. Reading on open (not mount) prevents the old "stale workspace
@@ -75,6 +84,7 @@ export function CreateAgentDialog() {
       setCreating(false);
       setSearch("");
       setExistingPath(null);
+      setRuntimeMode("local");
       return;
     }
     let cancelled = false;
@@ -97,6 +107,22 @@ export function CreateAgentDialog() {
     const trimmed = name.trim();
     if (!trimmed || !selectedConfigId || !currentWorkspace) return;
     setError(null);
+    if (runtimeMode === "cloud_24_7") {
+      if (!isCloudConfigured()) {
+        setError(t("runtimeMode.cloudNotConfigured"));
+        return;
+      }
+      if (!(await isCloudAvailable())) {
+        setError(
+          t(
+            hasCloudToken() || !isAuthConfigured()
+              ? "runtimeMode.cloudRequiresToken"
+              : "runtimeMode.cloudRequiresSignIn",
+          ),
+        );
+        return;
+      }
+    }
     setCreating(true);
     // AI-generated instructions take priority over the template's claudeMd.
     const claudeMd = generatedClaudeMd ?? selectedDef?.config.claudeMd;
@@ -110,6 +136,9 @@ export function CreateAgentDialog() {
         selectedDef?.path,
         selectedDef?.config.agentSeeds,
         existingPath ?? undefined,
+        runtimeMode,
+        provider,
+        model,
       );
       // Always write provider/model to the agent's own config. With workspace
       // defaults retired, the agent is the single source of truth — leaving
@@ -118,13 +147,13 @@ export function CreateAgentDialog() {
       const cfg = await tauriConfig.read(agent.folderPath);
       await tauriConfig.write(agent.folderPath, {
         ...cfg,
-        provider: provider as "anthropic" | "openai",
+        ...(isConfigProvider(provider) ? { provider } : {}),
         model,
       });
       // Keep the sticky last-used in sync so the next new agent inherits
       // the user's most recent choice.
       await tauriProvider.setLastUsed(provider, model);
-      if (routineAccepted && routineForm) {
+      if (runtimeMode === "local" && routineAccepted && routineForm) {
         // The agent is brand new, so its scheduler was never started
         // (create() doesn't go through setCurrent, and use-houston-init
         // only starts schedulers that existed at launch). startScheduler
@@ -196,7 +225,7 @@ export function CreateAgentDialog() {
         onEscapeKeyDown={(e) => { if (uiTourActive) e.preventDefault(); }}
       >
         {step === 1 ? (
-          <>
+          <div className="flex flex-col flex-1 min-h-0">
             <DialogHeader className="shrink-0 px-6 pt-6 pb-3">
               <DialogTitle>{t("newAgent.dialogTitle")}</DialogTitle>
             </DialogHeader>
@@ -218,7 +247,7 @@ export function CreateAgentDialog() {
                 setStep("ai-assist");
               }}
             />
-          </>
+          </div>
         ) : step === "ai-assist" ? (
           <AiAssistStep
             provider={provider}
@@ -291,6 +320,8 @@ export function CreateAgentDialog() {
             onSubmit={handleCreateAgent}
             creating={creating}
             error={error}
+            runtimeMode={runtimeMode}
+            onRuntimeModeChange={setRuntimeMode}
           />
         ) : (
           <NamingStep
@@ -306,6 +337,8 @@ export function CreateAgentDialog() {
             onColorChange={setColor}
             onExistingPathChange={setExistingPath}
             onProviderChange={(p, m) => { setProvider(p); setModel(m); }}
+            runtimeMode={runtimeMode}
+            onRuntimeModeChange={setRuntimeMode}
             onBack={() => setStep(1)}
             onSubmit={handleSubmit}
           />

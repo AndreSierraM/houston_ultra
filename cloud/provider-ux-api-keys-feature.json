@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "feature": {
+    "id": "provider-ux-api-keys",
+    "name": "Provider UI polish + multi-provider API keys + agent smarts",
+    "status": "awaiting_manual_qa",
+    "goal": "Fix provider-related UI overflow regressions without redesigning layouts; enable API-key connect for Anthropic, OpenAI, and Gemini alongside existing CLI OAuth; improve default agent/skill guidance so bundled agents behave competently.",
+    "constraints": [
+      "No visual redesign: preserve existing Houston design system, fix overflow/truncation/spacing only",
+      "Gemini OAuth path must keep working",
+      "CLI subscription login paths for Claude/Codex must remain default; API key is advanced alternative",
+      "All user strings via i18n en/es/pt",
+      "Mirror gemini/openrouter credential patterns for new keys"
+    ],
+    "supervision": {
+      "supervisor": "cursor-main",
+      "delegatedAt": "2026-06-06",
+      "activeWorkers": 12
+    },
+    "frontendAgents": [
+      {"id": "fe-01-provider-shell", "status": "completed", "owns": ["provider-picker.tsx", "provider-settings.tsx", "provider-cards.tsx", "provider-account-row.tsx"], "acceptance": ["no horizontal overflow", "truncate long subtitles", "cards match pre-OpenRouter density"], "evidence": {"completedAt": "2026-06-06", "checks": ["cd app && pnpm tsc --noEmit — pass"], "fixes": ["min-w-0/overflow-hidden flex chain on cards, rows, grids", "provider name truncate via inner span (connected dot no longer breaks ellipsis)", "ComingSoon badge shrink-0 preserved in overflow-hidden row"]}},
+      {"id": "fe-02-connect-dialogs", "status": "completed", "owns": ["api-key-form.tsx", "api-key-connect-dialog.tsx", "gemini-connect-dialog.tsx", "provider-connect-dialog.tsx"], "acceptance": ["dialog content fits max-w-md", "buttons not clipped", "dual-path CLI+API key affordances visible"]},
+      {"id": "fe-03-model-selector", "status": "completed", "owns": ["chat-model-selector.tsx", "chat-model-selector-parts.tsx", "provider-logos.tsx"], "acceptance": ["model names truncate", "provider badges don't overflow composer"], "completedAt": "2026-06-06", "notes": "Trigger max-w-[11rem] + truncate + title; dropdown labels/descriptions truncate with title on model id; ProviderIcon/logos shrink-0 overflow-hidden"},
+      {"id": "fe-04-onboarding-create", "status": "completed", "owns": ["create-workspace-dialog.tsx", "naming-step.tsx", "brain.tsx", "import-wizard.tsx"], "acceptance": ["provider step scrolls correctly", "no clipped CTAs on small viewports"]},
+      {"id": "fe-05-errors-agent-defaults", "status": "completed", "owns": ["provider-error-card.tsx", "provider-reconnect-card.tsx", "personal-assistant.ts", "builtin agents claudeMd"], "acceptance": ["error cards readable", "starter agent prompt delegates skills explicitly", "reconnect shows API key option when available"]}
+    ],
+    "backendAgents": [
+      {"id": "be-01-anthropic-api-key", "status": "completed", "owns": ["anthropic_credentials.rs", "providers routes", "engine-client", "claude runner env"], "acceptance": ["ANTHROPIC_API_KEY stored ~/.houston/providers/anthropic/.env", "status reflects key", "disconnect works"]},
+      {"id": "be-02-openai-api-key", "status": "completed", "owns": ["openai_credentials.rs", "codex_runner env", "providers routes"], "acceptance": ["OPENAI_API_KEY stored ~/.houston/providers/openai/.env", "codex sessions use key when no OAuth", "OAuth unchanged when present"]},
+      {"id": "be-03-gemini-active", "status": "completed", "owns": ["providers.ts gemini entry", "COMING_SOON removal", "gemini probe api key"], "acceptance": ["gemini in PROVIDERS", "API key + OAuth both work", "settings connect visible"]},
+      {"id": "be-04-credential-unify", "status": "completed", "owns": ["provider_env.rs", "provider_env_store.rs", "logout/disconnect", "provider_auth probes", "knowledge-base/auth.md"], "acceptance": ["consistent .env layout under ~/.houston/providers/", "legacy paths read on migration (gemini/.gemini, openrouter/openrouter, anthropic|openai flat)", "restrictive permissions 0600", "no silent failures"], "completedAt": "2026-06-06", "automatedChecks": {"cargoTestProviders": "pass (24 tests, --test-threads=1)"}},
+      {"id": "be-05-dispatch-injection", "status": "completed", "owns": ["session_dispatch.rs", "claude_runner.rs", "codex_runner.rs", "gemini_runner.rs", "provider_oneshot.rs", "provider_env.rs"], "acceptance": ["all api-key providers inject env at spawn", "missing key surfaces visible error", "canonical ~/.houston/providers paths with legacy fallback"]},
+    ],
+    "qaAgents": [
+      {"id": "qa-01-ui-regression", "status": "completed_automated", "acceptance": ["pnpm tsc", "check-locales", "manual overflow checklist provider screens"], "completedAt": "2026-06-06", "manualQaPending": "cloud/provider-ui-regression-checklist.md", "automatedChecks": {"appTsc": "pass", "checkLocales": "pass", "workspaceTypecheck": "pass"}, "notes": "Automated gates green 2026-06-06; 15 manual overflow/i18n rows pending operator. All fe-01..fe-05 complete — full UI checklist unblocked.", "blockedOn": []},
+      {"id": "qa-02-api-e2e", "status": "completed", "acceptance": ["cargo test --workspace --test-threads=1", "credential routes tested", "manual matrix anthropic/openai/gemini/openrouter api keys"], "completedAt": "2026-06-06", "automatedChecks": {"cargoTestWorkspace": "pass (944 passed, 5 ignored, --test-threads=1)"}, "integrationTests": "engine/houston-engine-server/tests/providers.rs — anthropic, openai, gemini, openrouter credential routes", "manualQaPending": "cloud/provider-api-key-qa-checklist.md"}
+    ],
+    "credentialPaths": {
+      "canonical": "~/.houston/providers/<provider>/.env",
+      "legacy": {
+        "anthropic": "~/.houston/anthropic/.env",
+        "openai": "~/.houston/openai/.env",
+        "gemini": "~/.gemini/.env",
+        "openrouter": "~/.houston/openrouter/.env"
+      },
+      "migration": "read legacy if canonical missing; writes always canonical; disconnect clears both"
+    },
+    "credentialEnvKeys": {
+      "anthropic": "ANTHROPIC_API_KEY",
+      "openai": "OPENAI_API_KEY",
+      "gemini": "GEMINI_API_KEY",
+      "openrouter": "OPENROUTER_API_KEY"
+    }
+  }
+}

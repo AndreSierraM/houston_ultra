@@ -96,6 +96,8 @@ export interface WorkspaceContext {
 
 // ---------- Workspace-scoped agent CRUD ----------
 
+export type AgentRuntimeMode = "local" | "cloud_24_7";
+
 export interface Agent {
   id: string;
   name: string;
@@ -104,6 +106,7 @@ export interface Agent {
   color?: string;
   createdAt: string;
   lastOpenedAt?: string;
+  runtime?: AgentRuntimeMode;
 }
 
 export interface CreateAgent {
@@ -114,6 +117,7 @@ export interface CreateAgent {
   installedPath?: string;
   seeds?: Record<string, string>;
   existingPath?: string;
+  runtime?: AgentRuntimeMode;
 }
 
 export interface CreateAgentResult {
@@ -392,6 +396,16 @@ export interface ProviderStatus {
   /** Absolute path to the CLI binary that will be spawned, or `null`
    *  when `installSource === "missing"`. Useful for diagnostics UI. */
   cliPath: string | null;
+}
+
+/** Body for POST `/v1/providers/openrouter/credentials`. */
+export interface OpenRouterCredentialsRequest {
+  apiKey: string;
+}
+
+/** Body for POST `/v1/providers/openai/credentials`. */
+export interface OpenAiCredentialsRequest {
+  apiKey: string;
 }
 
 export interface PreferenceValue {

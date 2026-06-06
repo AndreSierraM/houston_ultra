@@ -5,6 +5,7 @@ import type { ClaudeInstallError } from "@houston-ai/engine-client";
 import { subscribeHoustonEvents } from "../lib/events";
 import { tauriClaude } from "../lib/tauri";
 import { logger } from "../lib/logger";
+import { useAgentStore } from "../stores/agents";
 
 /**
  * Localize a typed install failure. The engine is i18n-agnostic — it
@@ -86,6 +87,7 @@ interface UseClaudeInstallOpts {
 }
 
 export function useClaudeInstall(opts: UseClaudeInstallOpts = {}): ClaudeInstallState {
+  const currentAgent = useAgentStore((s) => s.current);
   const [installing, setInstalling] = useState(false);
   const [progressPct, setProgressPct] = useState<number | null>(null);
   const [error, setError] = useState<ClaudeInstallError | null>(null);
@@ -118,7 +120,7 @@ export function useClaudeInstall(opts: UseClaudeInstallOpts = {}): ClaudeInstall
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [currentAgent?.id, currentAgent?.runtime]);
 
   useEffect(() => {
     const unlisten = subscribeHoustonEvents((event: HoustonEvent) => {
@@ -141,9 +143,9 @@ export function useClaudeInstall(opts: UseClaudeInstallOpts = {}): ClaudeInstall
           callbacksRef.current.onFailed?.(event.data.error);
           break;
       }
-    });
+    }, currentAgent);
     return unlisten;
-  }, []);
+  }, [currentAgent?.id, currentAgent?.runtime]);
 
   const retry = useCallback(async () => {
     setError(null);

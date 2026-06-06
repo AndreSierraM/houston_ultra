@@ -109,7 +109,9 @@ pub async fn read_stdout_events(
     // than on the adapter trait. Adding a provider = one new arm.
     match provider.id() {
         "anthropic" => read_claude_stdout(stdout, tx).await,
-        "openai" => read_codex_stdout(stdout, tx).await,
+        id if crate::provider::uses_codex_runner(id) => {
+            read_codex_stdout(stdout, tx, provider).await
+        }
         "gemini" => {
             read_gemini_stdout(stdout, tx).await;
             StdoutReadReport::default()
@@ -208,6 +210,7 @@ fn detect_claude_resume_corrupted(line: &str) -> bool {
 async fn read_codex_stdout(
     stdout: tokio::process::ChildStdout,
     tx: mpsc::UnboundedSender<SessionUpdate>,
+    provider: Provider,
 ) -> StdoutReadReport {
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
@@ -232,7 +235,7 @@ async fn read_codex_stdout(
             thread_id = Some(tid.clone());
             let _ = tx.send(SessionUpdate::SessionId(tid));
         }
-        let mut items = codex_parser::parse_codex_event(&line, &mut acc);
+        let mut items = codex_parser::parse_codex_event(&line, &mut acc, provider);
         mark_auth_error(&items, &mut report);
         mark_model_unsupported(&items, &mut report);
         if let Some(pos) = items

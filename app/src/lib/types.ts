@@ -61,6 +61,8 @@ export interface AgentDefinition {
   path?: string;           // For installed: ~/.houston/agents/{id}/
 }
 
+export type AgentRuntimeMode = "local" | "cloud_24_7";
+
 /** An agent instance (formerly "Workspace") */
 export interface Agent {
   id: string;
@@ -70,6 +72,7 @@ export interface Agent {
   color?: string;        // User-chosen color for avatar
   createdAt: string;
   lastOpenedAt?: string;
+  runtime?: AgentRuntimeMode;
 }
 
 /** Props injected into every tab component */

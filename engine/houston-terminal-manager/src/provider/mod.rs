@@ -23,9 +23,15 @@
 
 mod anthropic;
 pub(crate) mod anthropic_classify;
+pub(crate) mod anthropic_credentials;
 mod gemini;
+pub(crate) mod gemini_credentials;
 mod openai;
 mod openai_classify;
+pub(crate) mod openai_credentials;
+mod openrouter;
+mod openrouter_classify;
+pub(crate) mod openrouter_credentials;
 mod resolve;
 
 pub(crate) use anthropic_classify::detect_malformed_provider_json;
@@ -193,8 +199,14 @@ pub trait ProviderAdapter: Send + Sync + 'static {
 const REGISTRY: &[&dyn ProviderAdapter] = &[
     &anthropic::ANTHROPIC,
     &openai::OPENAI,
+    &openrouter::OPENROUTER,
     &gemini::GEMINI,
 ];
+
+/// Providers that spawn the Codex CLI runner (shared NDJSON parser).
+pub(crate) fn uses_codex_runner(id: &str) -> bool {
+    matches!(id, "openai" | "openrouter")
+}
 
 /// Default provider used when nothing else is configured. Stays Anthropic
 /// to match historical behavior.
@@ -447,7 +459,22 @@ mod tests {
         let ids: Vec<&str> = all().iter().map(|a| a.id()).collect();
         assert!(ids.contains(&"anthropic"));
         assert!(ids.contains(&"openai"));
+        assert!(ids.contains(&"openrouter"));
         assert!(ids.contains(&"gemini"));
+    }
+
+    #[test]
+    fn parse_openrouter_id() {
+        assert_eq!(Provider::from_str("openrouter").unwrap().id(), "openrouter");
+        assert_eq!(Provider::from_str("OPENROUTER").unwrap().id(), "openrouter");
+    }
+
+    #[test]
+    fn uses_codex_runner_includes_openrouter() {
+        assert!(uses_codex_runner("openrouter"));
+        assert!(uses_codex_runner("openai"));
+        assert!(!uses_codex_runner("anthropic"));
+        assert!(!uses_codex_runner("gemini"));
     }
 
     #[test]

@@ -76,6 +76,21 @@
     "codeCopyFailed": "Não foi possível copiar o código",
     "cancel": "Cancelar"
   },
+  "dualPathConnect": {
+    "or": "ou",
+    "useApiKeyInstead": "Usar chave de API no lugar"
+  },
+  "cliConnect": {
+    "title": "Conectar {{name}}",
+    "description": "Entre com sua conta existente. O Houston usa o mesmo login da CLI do seu computador.",
+    "descriptionAnthropic": "Entre com sua assinatura do Claude. O Houston usa o mesmo login do Claude Code no seu computador.",
+    "descriptionOpenai": "Entre com sua conta do ChatGPT. O Houston usa o mesmo login do Codex no seu computador.",
+    "signInWith": "Entrar com {{name}}",
+    "signingIn": "Abrindo o navegador...",
+    "signInFailed": "Não foi possível iniciar o login de {{name}}",
+    "signInRecommended": "Recomendado. Usa sua assinatura existente.",
+    "cancel": "Cancelar"
+  },
   "geminiConnect": {
     "title": "Conectar {{name}}",
     "description": "Entre com sua conta Google para usar o plano gratuito do Gemini, o mesmo que a CLI gemini usa fora do Houston.",
@@ -85,6 +100,12 @@
     "signInRecommended": "Recomendado. Usa o plano pessoal gratuito, sem pagamento.",
     "or": "ou",
     "useApiKeyAdvanced": "Usar uma chave de API (avançado)",
+    "cancel": "Cancelar"
+  },
+  "apiKeyConnect": {
+    "title": "Conectar {{name}}",
+    "description": "Cole uma chave de API do console do provedor. O Houston guarda localmente no seu computador.",
+    "connectButton": "Conectar {{name}}",
     "openConsole": "Abrir o console do {{name}}",
     "openConsoleFailed": "Não foi possível abrir o console do {{name}}",
     "placeholder": "Cole sua chave aqui",
@@ -93,6 +114,10 @@
     "saveKey": "Salvar e conectar",
     "saving": "Salvando...",
     "saveFailed": "Não foi possível salvar sua chave do {{name}}",
+    "saveUnavailable": "A conexão por chave de API para este provedor ainda não está disponível. Por enquanto use o login acima.",
     "cancel": "Cancelar"
+  },
+  "openrouterConnect": {
+    "description": "Crie uma chave de API no OpenRouter e cole aqui. O Houston usa só para executar seus agentes via Codex."
   }
 }

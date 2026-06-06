@@ -16,6 +16,7 @@
 
 use crate::cli_process::run_cli_process;
 use crate::gemini_home;
+use crate::provider::gemini_credentials;
 use crate::provider::InstallSource;
 use crate::session_update::SessionUpdate;
 use crate::types::SessionStatus;
@@ -50,6 +51,11 @@ pub(crate) async fn spawn_gemini(
             ))));
             return;
         }
+    }
+
+    if let Some(message) = gemini_credentials::gemini_api_key_mode_missing_error() {
+        let _ = tx.send(SessionUpdate::Status(SessionStatus::Error(message)));
+        return;
     }
 
     // Resolve via the adapter so the same code path covers both the
@@ -103,6 +109,9 @@ pub(crate) async fn spawn_gemini(
             // the override so memory discovery stays isolated there too.
             #[cfg(windows)]
             cmd.env("USERPROFILE", &home);
+            if let Some(key) = gemini_credentials::read_gemini_api_key_for_spawn() {
+                cmd.env("GEMINI_API_KEY", key);
+            }
         }
         Err(e) => {
             // Surface the failure noisily — silently letting the spawn

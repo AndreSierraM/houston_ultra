@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import type { ProviderInfo } from "../../lib/providers";
 import type { ClaudeInstallState } from "../../hooks/use-claude-install";
 import { ClaudeInstallHint } from "./claude-install-hint";
-import { ClaudeLogo, OpenAILogo, GeminiLogo } from "./provider-logos";
+import { ClaudeLogo, OpenAILogo, OpenRouterLogo, GeminiLogo } from "./provider-logos";
 
 function ProviderLogo({ provider }: { provider: ProviderInfo }) {
   switch (provider.id) {
@@ -11,6 +11,8 @@ function ProviderLogo({ provider }: { provider: ProviderInfo }) {
       return <ClaudeLogo />;
     case "openai":
       return <OpenAILogo />;
+    case "openrouter":
+      return <OpenRouterLogo />;
     case "gemini":
       return <GeminiLogo />;
     default:
@@ -73,20 +75,20 @@ export function ProviderAccountRow({
   // the bg color, leaving children rendering at their own colors.
   return (
     <div
-      className={`flex gap-3 px-3 py-2.5 rounded-xl transition-colors ${
+      className={`flex min-w-0 w-full overflow-hidden gap-3 px-3 py-2.5 rounded-xl transition-colors ${
         showInstallHint ? "flex-col" : "items-center"
       } ${connected ? "bg-secondary" : "bg-secondary/40"}`}
     >
-      <div className="flex items-center gap-3 w-full">
+      <div className="flex min-w-0 items-center gap-3 w-full">
         <div
-          className={`flex items-center gap-3 flex-1 min-w-0 transition-opacity ${
+          className={`flex items-center gap-3 flex-1 min-w-0 overflow-hidden transition-opacity ${
             connected ? "" : "opacity-50"
           }`}
         >
           <div className="size-8 rounded-lg bg-background flex items-center justify-center shrink-0">
             <ProviderLogo provider={provider} />
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 overflow-hidden">
             <p className="text-[13px] font-medium text-foreground truncate">{provider.name}</p>
             <p className="text-[11px] text-muted-foreground truncate">
               {connected ? t("card.connected") : provider.subtitle}

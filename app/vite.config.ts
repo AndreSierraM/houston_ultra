@@ -46,6 +46,9 @@ export default defineConfig(({ mode }) => {
       __HOUSTON_AUTH_STORAGE_MODE__: JSON.stringify(authStorageMode),
       __HOUSTON_AUTH_STORAGE_SCOPE__: JSON.stringify(authStorageScope),
       __SENTRY_DSN__: JSON.stringify(env.SENTRY_DSN ?? ""),
+      __HOUSTON_CLOUD_BASE__: JSON.stringify(
+        env.VITE_HOUSTON_CLOUD_BASE ?? env.HOUSTON_CLOUD_BASE ?? "",
+      ),
     },
     build: {
       // "hidden" emits .map files next to bundled JS but skips the

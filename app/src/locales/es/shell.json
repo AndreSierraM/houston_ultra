@@ -181,6 +181,18 @@
     "linkExistingProject": "Vincular un proyecto existente",
     "createAgent": "Crear agente"
   },
+  "runtimeMode": {
+    "label": "¿Dónde vivirá este agente?",
+    "localTitle": "Este computador",
+    "localDescription": "Corre en este dispositivo mientras Houston está abierto",
+    "cloudTitle": "Nube 24/7",
+    "cloudDescription": "Siempre activo en Houston Cloud",
+    "cloudRequiresSignIn": "Inicia sesión para usar Nube 24/7",
+    "cloudRequiresToken": "Define VITE_HOUSTON_CLOUD_TOKEN en app/.env.local (mismo valor que HOUSTON_CLOUD_TOKEN en el servidor)",
+    "cloudServer": "Servidor: {{server}}",
+    "cloudUnreachable": "No se puede conectar al servidor cloud en {{server}}",
+    "cloudNotConfigured": "Configura VITE_HOUSTON_CLOUD_BASE en app/.env.local con la URL de tu control plane"
+  },
   "newAgent": {
     "dialogTitle": "Nuevo agente"
   },

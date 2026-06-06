@@ -1,6 +1,7 @@
 use super::types::{FeedItem, SessionStatus};
 use crate::claude_install_path;
 use crate::cli_process::{run_cli_process, CliRunOutcome};
+use crate::provider::anthropic_credentials;
 use crate::provider_error::MALFORMED_PROVIDER_JSON_MESSAGE;
 use crate::provider_error_kind::ProviderError;
 use crate::session_update::SessionUpdate;
@@ -214,6 +215,10 @@ fn configure_claude_command(
 
     cmd.env_remove("CLAUDE_CODE_ENTRYPOINT");
     cmd.env_remove("CLAUDECODE");
+
+    if let Some(key) = anthropic_credentials::read_anthropic_api_key_for_spawn() {
+        cmd.env("ANTHROPIC_API_KEY", key);
+    }
 
     if let Some(dir) = working_dir {
         cmd.current_dir(dir);

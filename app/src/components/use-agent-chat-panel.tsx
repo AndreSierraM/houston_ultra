@@ -70,6 +70,7 @@ import {
   normalizeLegacyModel,
   type EffortLevel,
 } from "../lib/providers";
+import { isConfigProvider } from "../data/config";
 import {
   sessionContextUsage,
   effectiveContextWindow,
@@ -254,7 +255,7 @@ export function useAgentChatPanel({
           const cfg = await tauriConfig.read(path);
           await tauriConfig.write(path, {
             ...cfg,
-            provider: prov as "anthropic" | "openai",
+            ...(isConfigProvider(prov) ? { provider: prov } : {}),
             model: mod,
           });
         }

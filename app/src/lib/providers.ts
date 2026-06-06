@@ -50,14 +50,11 @@ export interface ModelOption {
 /**
  * How a provider authenticates.
  *
- * - `"cli"`: the provider exposes a CLI login command (e.g. `claude login`,
- *   `codex login`). Houston runs it via `tauriProvider.launchLogin` and the
- *   provider's own browser flow takes over.
- * - `"apiKey"`: the provider has NO CLI login flow. The user must paste an
- *   API key from the provider's console and Houston surfaces a dedicated
- *   dialog with the instructions instead of calling `launchLogin`.
+ * - `"cli"`: CLI login command (e.g. `claude login`, `codex login`).
+ * - `"apiKey"`: API-key paste only (OpenRouter).
+ * - `"oauth"`: OAuth-primary connect dialog with optional API-key path (Gemini).
  */
-export type ProviderLoginKind = "cli" | "apiKey";
+export type ProviderLoginKind = "cli" | "apiKey" | "oauth";
 
 export interface ProviderInfo {
   id: string;
@@ -73,7 +70,7 @@ export interface ProviderInfo {
   loginKind?: ProviderLoginKind;
   /**
    * Optional URL the connect dialog points API-key users at to mint a key.
-   * Only meaningful when `loginKind === "apiKey"`.
+   * Only meaningful when `loginKind === "apiKey"` or `"oauth"`.
    */
   apiKeyConsoleUrl?: string;
   /**
@@ -112,6 +109,9 @@ export const PROVIDERS: readonly ProviderInfo[] = [
       },
     ],
     defaultModel: "gpt-5.5",
+    loginKind: "oauth",
+    apiKeyConsoleUrl: "https://platform.openai.com/api-keys",
+    apiKeyEnvVar: "OPENAI_API_KEY",
   },
   {
     id: "anthropic",
@@ -158,8 +158,81 @@ export const PROVIDERS: readonly ProviderInfo[] = [
       },
     ],
     defaultModel: "claude-sonnet-4-6",
+    loginKind: "oauth",
+    apiKeyConsoleUrl: "https://console.anthropic.com/settings/keys",
+    apiKeyEnvVar: "ANTHROPIC_API_KEY",
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    subtitle: "Multi-model gateway",
+    cliName: "codex",
+    installUrl: "https://github.com/openai/codex",
+    loginCommand: "codex login",
+    cost: "Pay as you go",
+    loginKind: "apiKey",
+    apiKeyConsoleUrl: "https://openrouter.ai/keys",
+    apiKeyEnvVar: "OPENROUTER_API_KEY",
+    models: [
+      {
+        id: "anthropic/claude-sonnet-4",
+        label: "Claude Sonnet 4",
+        description: "Anthropic Sonnet via OpenRouter.",
+      },
+      {
+        id: "openai/gpt-4.1",
+        label: "GPT-4.1",
+        description: "OpenAI GPT-4.1 via OpenRouter.",
+      },
+      {
+        id: "google/gemini-2.5-pro-preview",
+        label: "Gemini 2.5 Pro",
+        description: "Google Gemini via OpenRouter.",
+      },
+      {
+        id: "meta-llama/llama-4-maverick",
+        label: "Llama 4 Maverick",
+        description: "Meta Llama 4 via OpenRouter.",
+      },
+      {
+        id: "deepseek/deepseek-chat-v3-0324",
+        label: "DeepSeek V3",
+        description: "DeepSeek Chat via OpenRouter.",
+      },
+    ],
+    defaultModel: "anthropic/claude-sonnet-4",
+  },
+  {
+    id: "gemini",
+    name: "Google",
+    subtitle: "Gemini CLI",
+    cliName: "gemini",
+    installUrl: "https://github.com/google-gemini/gemini-cli",
+    loginCommand: "",
+    cost: "Free tier with Google account",
+    loginKind: "oauth",
+    apiKeyConsoleUrl: "https://aistudio.google.com/apikey",
+    apiKeyEnvVar: "GEMINI_API_KEY",
+    models: [
+      {
+        id: "gemini-2.5-flash",
+        label: "Gemini 2.5 Flash",
+        description: "Fast default model.",
+      },
+      {
+        id: "gemini-2.5-pro",
+        label: "Gemini 2.5 Pro",
+        description: "Most capable Gemini model.",
+      },
+    ],
+    defaultModel: "gemini-2.5-flash",
   },
 ] as const;
+
+/** Providers whose connect flow is a dedicated dialog, not `launchLogin`. */
+export function usesConnectDialog(provider: ProviderInfo | null | undefined): boolean {
+  return provider?.loginKind === "apiKey" || provider?.loginKind === "oauth";
+}
 
 /** Find a provider by id. */
 export function getProvider(id: string): ProviderInfo | undefined {
@@ -208,10 +281,8 @@ export function getContextWindowConfig(
  * Return `providerId` only when it names a currently-active provider in
  * `PROVIDERS`. Used by the chat model selector and the per-chat
  * effective-provider fallback chain to skip stored values that point at
- * providers Houston has moved to `COMING_SOON_PROVIDERS` (e.g. an
- * activity record from a previous Houston version that selected Gemini
- * before it was paused). Callers chain it with `??` to fall through to
- * the next tier of preference.
+ * providers Houston has retired from `PROVIDERS` (stored configs from older
+ * builds may still reference them). Callers chain with `??` to fall through.
  */
 export function validProviderOrNull(providerId: string | null | undefined): string | null {
   return providerId && getProvider(providerId) ? providerId : null;
@@ -296,11 +367,6 @@ export interface ComingSoonProviderInfo {
 }
 
 export const COMING_SOON_PROVIDERS: readonly ComingSoonProviderInfo[] = [
-  // Gemini: engine support + bundled CLI machinery are intact in this
-  // codebase. The UI keeps it under "coming soon" until the broader
-  // rollout (account-tier gating, Windows fork-build) is ready. Listed
-  // first so the alphabetised "next up" slot stays prominent.
-  { id: "gemini", name: "Google", subtitle: "Gemini CLI", mark: "GM" },
   { id: "subq", name: "SubQ", subtitle: "SubQ Code", mark: "SQ" },
   { id: "deepseek", name: "DeepSeek", subtitle: "DeepSeek Coder", mark: "DS" },
   { id: "minimax", name: "MiniMax", subtitle: "M2", mark: "MM" },

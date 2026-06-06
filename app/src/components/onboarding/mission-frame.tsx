@@ -27,8 +27,8 @@ export function MissionFrame({
   upNextLabel,
 }: MissionFrameProps) {
   return (
-    <div className="h-screen overflow-y-auto bg-background text-foreground">
-      <header className="sticky top-0 z-10 bg-background/95 px-5 py-4 backdrop-blur">
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      <header className="sticky top-0 z-10 shrink-0 bg-background/95 px-5 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <HoustonLogo size={24} />
@@ -41,7 +41,7 @@ export function MissionFrame({
         </div>
       </header>
 
-      <main className="mx-auto flex min-h-[calc(100vh-72px)] max-w-3xl flex-col px-5 pb-12 pt-8">
+      <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-5 pb-12 pt-8">
         <header>
           <p className="text-xs text-muted-foreground">{meta.eyebrow}</p>
           <h1 className="mt-2 text-[28px] font-normal leading-tight">
@@ -55,7 +55,7 @@ export function MissionFrame({
             </p>
           )}
         </header>
-        <section className="mt-8 flex flex-1 flex-col">{children}</section>
+        <section className="mt-8 flex min-h-0 flex-1 flex-col">{children}</section>
       </main>
     </div>
   );

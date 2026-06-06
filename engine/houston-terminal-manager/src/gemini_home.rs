@@ -176,7 +176,7 @@ pub fn resolve_real_home() -> io::Result<PathBuf> {
 /// Layout under `<houston_data>/runtime/gemini-home/.gemini/`:
 ///   * `oauth_creds.json`     — symlink to `<real_home>/.gemini/oauth_creds.json`
 ///   * `google_accounts.json` — symlink to `<real_home>/.gemini/google_accounts.json`
-///   * `.env`                 — symlink to `<real_home>/.gemini/.env` (API-key auth path)
+///   * `.env`                 — symlink to `~/.houston/providers/gemini/.env` (API-key auth)
 ///   * `settings.json`        — Houston-written, mirrors user's `selectedType`
 ///
 /// Idempotent: rewrites only on drift.
@@ -208,9 +208,7 @@ pub fn ensure_gemini_runtime_home(
     // and the link starts working the moment auth completes. Three
     // links cover both auth modes Houston supports:
     //  - oauth_creds.json + google_accounts.json: OAuth ("Sign in with Google")
-    //  - .env: API-key auth (Houston writes GEMINI_API_KEY=... here via
-    //    the gemini_credentials route). Without this third symlink, any
-    //    user on API-key auth would be unauthenticated under isolation.
+    //  - .env: API-key auth (Houston writes GEMINI_API_KEY under ~/.houston/providers/gemini/)
     ensure_symlink(
         &real_gemini.join("oauth_creds.json"),
         &runtime_gemini.join("oauth_creds.json"),
@@ -219,10 +217,19 @@ pub fn ensure_gemini_runtime_home(
         &real_gemini.join("google_accounts.json"),
         &runtime_gemini.join("google_accounts.json"),
     )?;
-    ensure_symlink(
-        &real_gemini.join(".env"),
-        &runtime_gemini.join(".env"),
-    )?;
+    let legacy_env = real_gemini.join(".env");
+    let canonical_env = houston_data
+        .join("providers")
+        .join("gemini")
+        .join(".env");
+    let api_key_source = if canonical_env.is_file() {
+        canonical_env
+    } else if legacy_env.is_file() {
+        legacy_env
+    } else {
+        canonical_env
+    };
+    ensure_symlink(&api_key_source, &runtime_gemini.join(".env"))?;
 
     let selected = detect_selected_auth_type(&real_gemini);
     write_if_changed(

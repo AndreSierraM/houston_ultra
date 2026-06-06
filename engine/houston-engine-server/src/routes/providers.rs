@@ -56,6 +56,26 @@ pub fn router() -> Router<Arc<ServerState>> {
             "/providers/gemini/credentials",
             post(gemini_set_credentials),
         )
+        // OpenRouter-only: persist an API key the user pasted in the picker
+        // dialog to `~/.houston/openrouter/.env`. Houston injects
+        // `OPENROUTER_API_KEY` into Codex subprocesses at spawn time.
+        .route(
+            "/providers/openrouter/credentials",
+            post(openrouter_set_credentials),
+        )
+        // Anthropic-only: persist an API key the user pasted in the picker
+        // dialog to `~/.houston/anthropic/.env`. Houston injects
+        // `ANTHROPIC_API_KEY` into Claude Code subprocesses at spawn time.
+        .route(
+            "/providers/anthropic/credentials",
+            post(anthropic_set_credentials),
+        )
+        // OpenAI-only: persist an API key to `~/.houston/openai/.env`.
+        // Houston injects `OPENAI_API_KEY` when no OAuth session exists.
+        .route(
+            "/providers/openai/credentials",
+            post(openai_set_credentials),
+        )
 }
 
 async fn status(
@@ -137,6 +157,57 @@ async fn gemini_set_credentials(
     Json(body): Json<GeminiCredentials>,
 ) -> Result<(), ApiError> {
     provider::set_gemini_api_key(&body.api_key).await?;
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenRouterCredentials {
+    /// Raw API key the user pasted in the dialog. Validated + persisted
+    /// by `houston_engine_core::provider::set_openrouter_api_key`. NEVER
+    /// logged in plaintext.
+    api_key: String,
+}
+
+async fn openrouter_set_credentials(
+    State(_st): State<Arc<ServerState>>,
+    Json(body): Json<OpenRouterCredentials>,
+) -> Result<(), ApiError> {
+    provider::set_openrouter_api_key(&body.api_key).await?;
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenAiCredentials {
+    /// Raw API key the user pasted in the dialog. Validated + persisted
+    /// by `houston_engine_core::provider::set_openai_api_key`. NEVER
+    /// logged in plaintext.
+    api_key: String,
+}
+
+async fn openai_set_credentials(
+    State(_st): State<Arc<ServerState>>,
+    Json(body): Json<OpenAiCredentials>,
+) -> Result<(), ApiError> {
+    provider::set_openai_api_key(&body.api_key).await?;
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnthropicCredentials {
+    /// Raw API key the user pasted in the dialog. Validated + persisted
+    /// by `houston_engine_core::provider::set_anthropic_api_key`. NEVER
+    /// logged in plaintext.
+    api_key: String,
+}
+
+async fn anthropic_set_credentials(
+    State(_st): State<Arc<ServerState>>,
+    Json(body): Json<AnthropicCredentials>,
+) -> Result<(), ApiError> {
+    provider::set_anthropic_api_key(&body.api_key).await?;
     Ok(())
 }
 

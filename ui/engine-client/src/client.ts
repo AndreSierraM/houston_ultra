@@ -516,6 +516,33 @@ export class HoustonClient {
   setGeminiApiKey(apiKey: string): Promise<void> {
     return this.request("POST", "/providers/gemini/credentials", { apiKey });
   }
+  /**
+   * Persist an OpenRouter API key to `~/.houston/openrouter/.env`.
+   * The engine validates the key shape and chmods 0600 on Unix. The next
+   * `providerStatus("openrouter")` poll returns `Authenticated` without a
+   * Houston restart.
+   */
+  setOpenRouterApiKey(apiKey: string): Promise<void> {
+    return this.request("POST", "/providers/openrouter/credentials", { apiKey });
+  }
+  /**
+   * Persist an OpenAI API key to `~/.houston/openai/.env`.
+   * The engine validates the key shape and chmods 0600 on Unix. The next
+   * `providerStatus("openai")` poll returns `Authenticated` without a
+   * Houston restart. OAuth subscription login remains preferred when present.
+   */
+  setOpenAiApiKey(apiKey: string): Promise<void> {
+    return this.request("POST", "/providers/openai/credentials", { apiKey });
+  }
+  /**
+   * Persist an Anthropic API key to `~/.houston/anthropic/.env`.
+   * The engine validates the key shape and chmods 0600 on Unix. The next
+   * `providerStatus("anthropic")` poll returns `Authenticated` without a
+   * Houston restart. OAuth via `providerLogin("anthropic")` remains available.
+   */
+  setAnthropicApiKey(apiKey: string): Promise<void> {
+    return this.request("POST", "/providers/anthropic/credentials", { apiKey });
+  }
   // "Sign in with Google" for Gemini goes through the standard
   // `providerLogin("gemini")` call — the engine detects the gemini id
   // and delegates to gemini-cli's own OAuth via the ACP `authenticate`

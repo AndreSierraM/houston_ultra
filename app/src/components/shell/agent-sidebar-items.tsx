@@ -12,7 +12,7 @@ interface BuildAgentSidebarItemsArgs {
   needsYouLabel: (count: number) => string;
   onChangeColor: (agentId: string, color: string) => void;
   onShareAgent: (agentId: string) => void;
-  shareLabel: string;
+  shareLabel: (agent: Agent) => string;
 }
 
 export function buildAgentSidebarItems({
@@ -55,7 +55,7 @@ export function buildAgentSidebarItems({
             onChange={(color) => onChangeColor(agent.id, color)}
           />
           <DropdownMenuItem onClick={() => onShareAgent(agent.id)}>
-            {shareLabel}
+            {shareLabel(agent)}
           </DropdownMenuItem>
         </>
       ),

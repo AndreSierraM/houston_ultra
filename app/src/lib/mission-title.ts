@@ -1,4 +1,5 @@
-import { getEngine } from "./engine";
+import { agentFromPath } from "./agent-lookup";
+import { resolveEngine } from "./engine-for-agent";
 import { logger } from "./logger";
 import {
   cleanGeneratedTitle,
@@ -24,14 +25,15 @@ export async function refreshMissionTitle({
 }: RefreshMissionTitleOptions): Promise<void> {
   const fallback = fallbackMissionTitle(text);
   try {
-    const summary = await getEngine().summarizeActivity(text, {
+    const engine = await resolveEngine(agentFromPath(agentPath));
+    const summary = await engine.summarizeActivity(text, {
       agentPath,
       provider,
       model,
     });
     const title = cleanGeneratedTitle(summary.title) ?? fallback;
     if (title === fallback) return;
-    await getEngine().updateActivity(agentPath, activityId, { title });
+    await engine.updateActivity(agentPath, activityId, { title });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.warn(

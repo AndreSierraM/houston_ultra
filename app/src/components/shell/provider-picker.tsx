@@ -6,13 +6,14 @@ import { tauriProvider, type ProviderStatus } from "../../lib/tauri";
 import {
   PROVIDERS,
   COMING_SOON_PROVIDERS,
+  usesConnectDialog,
   type ProviderInfo,
 } from "../../lib/providers";
 import { useUIStore } from "../../stores/ui";
 import { analytics } from "../../lib/analytics";
 import { subscribeHoustonEvents } from "../../lib/events";
 import { osIsTauri } from "../../lib/os-bridge";
-import { GeminiConnectDialog } from "./gemini-connect-dialog";
+import { ProviderConnectDialog } from "./provider-connect-dialog";
 import { ProviderLoginDialog } from "./provider-login-dialog";
 import { ProviderCard, ComingSoonCard } from "./provider-cards";
 
@@ -150,7 +151,7 @@ export function ProviderPicker({ onSelect }: Props) {
     // API-key providers (e.g. Gemini) have no CLI login flow. The engine
     // would return a BadRequest if we called `launchLogin`; instead we open
     // a dedicated dialog that walks the user through pasting an API key.
-    if (provider.loginKind === "apiKey") {
+    if (usesConnectDialog(provider)) {
       setApiKeyDialogFor(provider);
       return;
     }
@@ -222,7 +223,7 @@ export function ProviderPicker({ onSelect }: Props) {
 
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="grid min-w-0 grid-cols-1 sm:grid-cols-2 gap-2">
         {PROVIDERS.map((prov) => {
           const status = statuses[prov.id];
           const connected = (status?.cli_installed && status?.authenticated) ?? false;
@@ -261,24 +262,16 @@ export function ProviderPicker({ onSelect }: Props) {
         }}
       />
 
-      <GeminiConnectDialog
+      <ProviderConnectDialog
         provider={apiKeyDialogFor}
         onOpenChange={(open) => {
           if (!open) setApiKeyDialogFor(null);
         }}
         onSaved={(providerId) => {
-          // Flipping pendingId arms the 2s status poll defined in this
-          // component, so the card transitions to "Connected" without a
-          // Houston restart. The poll is also responsible for clearing
-          // pendingId once the auth state reads `authenticated`.
           setPendingId(providerId);
           loadStatuses();
         }}
         onLoginStarted={(providerId) => {
-          // OAuth path: gemini-cli is now driving the browser flow.
-          // Arm the picker's status poll so the card flips to
-          // Connected the moment gemini-cli writes its credential
-          // files, same as the API-key save path above.
           setPendingId(providerId);
         }}
       />

@@ -1,5 +1,39 @@
 {
   "shareMenu": "Share with a friend",
+  "shareAccessMenu": "Share access",
+  "cloudShare": {
+    "eyebrow": "Share access · {{name}}",
+    "title": "Who can use this agent?",
+    "body": "Invite teammates by their Houston user ID. They can use this cloud agent based on the role you pick.",
+    "userIdLabel": "User ID",
+    "userIdPlaceholder": "Paste their UUID",
+    "roleLabel": "Role",
+    "roles": {
+      "viewer": "Viewer",
+      "operator": "Operator",
+      "admin": "Admin"
+    },
+    "submit": "Grant access",
+    "submitting": "Saving.",
+    "revoke": "Revoke",
+    "revoking": "Revoking.",
+    "currentShares": "People with access",
+    "noShares": "Only you have access so far.",
+    "loading": "Loading shares.",
+    "close": "Done",
+    "errors": {
+      "loadFailed": "Could not load shares.",
+      "invalidUserId": "Enter a valid user ID.",
+      "grantFailed": "Could not grant access.",
+      "revokeFailed": "Could not revoke access."
+    },
+    "toasts": {
+      "grantedTitle": "Access granted",
+      "grantedDescription": "They can now use this agent.",
+      "revokedTitle": "Access revoked",
+      "revokedDescription": "They can no longer use this agent."
+    }
+  },
   "newAgent": {
     "fromFriendCard": "From a friend",
     "fromFriendDescription": "Drop a file someone shared with you and bring their agent into your workspace."

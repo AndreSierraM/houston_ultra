@@ -32,6 +32,7 @@ export function useSessionEvents() {
   const pushFeedItem = useFeedStore((s) => s.pushFeedItem);
   const addToast = useUIStore((s) => s.addToast);
   const setAuthRequired = useUIStore((s) => s.setAuthRequired);
+  const currentAgent = useAgentStore((s) => s.current);
   const { t } = useTranslation(["providers", "common"]);
   const claudeErrorText = useClaudeInstallErrorText();
 
@@ -186,7 +187,7 @@ export function useSessionEvents() {
           break;
         }
       }
-    });
+    }, currentAgent);
 
     // Notification "action performed" listener. NOTE: the plugin's Actions API
     // only fires on mobile — on every desktop OS this is a no-op. Desktop
@@ -257,5 +258,5 @@ export function useSessionEvents() {
         logger.debug(`[notification] Tauri focus listener cleanup failed: ${e}`);
       });
     };
-  }, []);
+  }, [currentAgent?.id, currentAgent?.runtime]);
 }

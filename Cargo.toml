@@ -20,6 +20,7 @@ members = [
     "engine/houston-engine-protocol",
     "engine/houston-engine-server",
     "app/src-tauri",
+    "cloud/control-plane",
 ]
 
 [workspace.dependencies]

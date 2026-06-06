@@ -4,6 +4,7 @@ import type { HoustonEvent } from "@houston-ai/core";
 import { queryKeys } from "../lib/query-keys";
 import { subscribeHoustonEvents } from "../lib/events";
 import { onEngineRestarted } from "../lib/engine";
+import { useAgentStore } from "../stores/agents";
 import { useSessionStatusStore } from "../stores/session-status";
 
 /**
@@ -14,6 +15,7 @@ import { useSessionStatusStore } from "../stores/session-status";
  */
 export function useAgentInvalidation() {
   const qc = useQueryClient();
+  const currentAgent = useAgentStore((s) => s.current);
 
   useEffect(() => {
     const offEngineRestarted = onEngineRestarted(() => {
@@ -79,11 +81,11 @@ export function useAgentInvalidation() {
           qc.invalidateQueries({ queryKey: queryKeys.providerStatuses() });
           break;
       }
-    });
+    }, currentAgent);
 
     return () => {
       offEngineRestarted();
       unlisten();
     };
-  }, [qc]);
+  }, [qc, currentAgent?.id, currentAgent?.runtime]);
 }

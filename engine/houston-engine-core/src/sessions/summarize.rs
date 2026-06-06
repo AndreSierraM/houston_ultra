@@ -22,6 +22,9 @@ use std::time::Duration;
 const SUMMARY_TIMEOUT: Duration = Duration::from_secs(30);
 const CLAUDE_TITLE_MODEL: &str = "haiku";
 const CODEX_TITLE_MODEL: &str = "gpt-5.5-mini";
+/// OpenRouter title-summary model. Cheap OpenRouter slug routed through
+/// Codex CLI with process-local provider overrides (see `provider_oneshot`).
+pub(crate) const OPENROUTER_TITLE_MODEL: &str = "openai/gpt-4o-mini";
 /// Gemini title-summary model. Flash-Lite is the cheapest/fastest GA tier
 /// and gives us a JSON object in well under the 30s SUMMARY_TIMEOUT.
 const GEMINI_TITLE_MODEL: &str = "gemini-3.1-flash-lite";
@@ -69,6 +72,7 @@ fn default_title_model<'a>(provider: Provider, model_override: Option<&'a str>) 
     let default = match provider.id() {
         "anthropic" => CLAUDE_TITLE_MODEL,
         "openai" => CODEX_TITLE_MODEL,
+        "openrouter" => OPENROUTER_TITLE_MODEL,
         "gemini" => GEMINI_TITLE_MODEL,
         _ => return None,
     };
@@ -101,6 +105,24 @@ mod tests {
         assert_eq!(default_title_model(a, None), Some(CLAUDE_TITLE_MODEL));
         assert_eq!(default_title_model(o, None), Some(CODEX_TITLE_MODEL));
         assert_eq!(default_title_model(g, None), Some(GEMINI_TITLE_MODEL));
+    }
+
+    #[test]
+    fn openrouter_title_model_is_cheap_openrouter_slug() {
+        assert_eq!(OPENROUTER_TITLE_MODEL, "openai/gpt-4o-mini");
+    }
+
+    #[test]
+    fn default_title_model_wires_openrouter_when_registered() {
+        let or: Provider = match "openrouter".parse() {
+            Ok(p) => p,
+            Err(_) => return, // agent-02 registry; session defaults ready when it lands
+        };
+        assert_eq!(default_title_model(or, None), Some(OPENROUTER_TITLE_MODEL));
+        assert_eq!(
+            default_title_model(or, Some("anthropic/claude-sonnet-4")),
+            Some("anthropic/claude-sonnet-4"),
+        );
     }
 
     #[test]

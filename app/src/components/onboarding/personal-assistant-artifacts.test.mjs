@@ -30,4 +30,6 @@ test("assistant instructions interpolate the mission title", () => {
 
   assert.match(instructions, /# Personal assistant/);
   assert.match(instructions, /Plan my next working day/);
+  assert.match(instructions, /matching Skill exists/);
+  assert.match(instructions, /short plan and wait for my yes/);
 });

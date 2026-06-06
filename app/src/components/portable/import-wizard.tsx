@@ -37,6 +37,7 @@ import { useAgentStore } from "../../stores/agents";
 import { getEngine } from "../../lib/engine";
 import { tauriConfig, tauriProvider } from "../../lib/tauri";
 import { analytics } from "../../lib/analytics";
+import { isConfigProvider } from "../../data/config";
 import { getDefaultModel } from "../../lib/providers";
 import { IntegrationLogos } from "../integration-logos";
 import { InlineModelSelector } from "../shell/naming-step";
@@ -214,7 +215,7 @@ export function ImportAgentWizard() {
       const cfg = await tauriConfig.read(installed.agentPath);
       await tauriConfig.write(installed.agentPath, {
         ...cfg,
-        provider: provider as "anthropic" | "openai",
+        ...(isConfigProvider(provider) ? { provider } : {}),
         model,
       });
       await tauriProvider.setLastUsed(provider, model);
@@ -526,7 +527,7 @@ function NameStep({
   const { t } = useTranslation("portable");
   const resolvedColor = resolveAgentColor(color);
   return (
-    <div className="flex flex-col items-center justify-center min-h-full px-6 py-12">
+    <div className="flex flex-col items-center px-6 py-6">
       <div className="flex flex-col items-center gap-4 mb-8">
         <HoustonAvatar color={resolvedColor} diameter={80} />
         <div className="text-center">

@@ -12,6 +12,7 @@ import { CreateWorkspaceDialog } from "./workspace-dialog";
 import { useAgentActivitySummaries } from "./use-agent-activity-summaries";
 import { buildAgentSidebarItems } from "./agent-sidebar-items";
 import { orderAgents } from "../../lib/agent-order";
+import { isCloudAgent } from "../../lib/runtime-router";
 import { DEFAULT_TAB_ID } from "../../agents/standard-tabs";
 
 export function Sidebar({ children }: { children: ReactNode }) {
@@ -48,7 +49,10 @@ export function Sidebar({ children }: { children: ReactNode }) {
       void handleChangeColor(agentId, color);
     },
     onShareAgent: (agentId) => useUIStore.getState().setShareAgentId(agentId),
-    shareLabel: t("portable:shareMenu"),
+    shareLabel: (agent) =>
+      isCloudAgent(agent)
+        ? t("portable:shareAccessMenu")
+        : t("portable:shareMenu"),
   });
   const isTopLevel = viewMode === "dashboard" || viewMode === "connections" || viewMode === "settings";
 

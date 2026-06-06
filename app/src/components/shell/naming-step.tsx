@@ -13,6 +13,8 @@ import {
 } from "@houston-ai/core";
 import { ArrowLeft, Check, FolderOpen, ChevronDown } from "lucide-react";
 import type { AgentDefinition } from "../../lib/types";
+import type { AgentRuntimeMode } from "../../lib/cloud-client";
+import { RuntimeModeSelector } from "./runtime-mode-selector";
 import { tauriProvider, type ProviderStatus } from "../../lib/tauri";
 import { PROVIDERS, getProvider, getModel } from "../../lib/providers";
 
@@ -26,6 +28,8 @@ interface NamingStepProps {
   model: string;
   /** Show "Link existing project" option (opt-in via agent features). */
   showLinkProject?: boolean;
+  runtimeMode: AgentRuntimeMode;
+  onRuntimeModeChange: (mode: AgentRuntimeMode) => void;
   onNameChange: (value: string) => void;
   onColorChange: (value: string) => void;
   onExistingPathChange: (path: string | null) => void;
@@ -46,6 +50,8 @@ export function NamingStep({
   onColorChange,
   onExistingPathChange,
   showLinkProject,
+  runtimeMode,
+  onRuntimeModeChange,
   onProviderChange,
   onBack,
   onSubmit,
@@ -61,122 +67,136 @@ export function NamingStep({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex flex-col items-center justify-center flex-1 px-6 py-16">
+    <form
+      onSubmit={onSubmit}
+      className="relative flex flex-col flex-1 min-h-0"
+    >
       <button
+        type="button"
         onClick={onBack}
-        className="absolute top-5 left-5 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        className="absolute top-5 left-5 z-10 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
       >
         <ArrowLeft className="h-4 w-4" />
       </button>
 
       <DialogTitle className="sr-only">{t("naming.dialogTitle")}</DialogTitle>
 
-      {/* Avatar preview */}
-      <div className="flex flex-col items-center gap-4 mb-8">
-        <HoustonAvatar color={resolvedColor} diameter={80} />
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 pt-6 pb-4">
+        <div className="mx-auto flex w-full max-w-sm flex-col items-center">
+          {/* Avatar preview */}
+          <div className="flex flex-col items-center gap-4 mb-8">
+            <HoustonAvatar color={resolvedColor} diameter={80} />
 
-        <div className="text-center">
-          <p className="text-lg font-semibold">
-            {selectedAgent?.config.name ?? t("naming.newAgentFallback")}
-          </p>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t("naming.tagline")}
-          </p>
+            <div className="text-center">
+              <p className="text-lg font-semibold">
+                {selectedAgent?.config.name ?? t("naming.newAgentFallback")}
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {t("naming.tagline")}
+              </p>
+            </div>
+          </div>
+
+          {/* Color palette */}
+          <div className="flex items-center gap-2 mb-6">
+            {AGENT_COLORS.map((c) => {
+              const hex = colorHex(c);
+              const isSelected = color === c.id || color === c.light || color === c.dark;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => onColorChange(c.id)}
+                  className={cn(
+                    "h-7 w-7 rounded-full flex items-center justify-center transition-all duration-150",
+                    isSelected
+                      ? "ring-2 ring-offset-2 ring-foreground/30"
+                      : "hover:scale-110",
+                  )}
+                  style={{ backgroundColor: hex }}
+                >
+                  {isSelected && (
+                    <Check className="h-3.5 w-3.5 text-white" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="w-full space-y-4">
+            <Input
+              autoFocus
+              value={name}
+              onChange={(e) => onNameChange(e.target.value)}
+              placeholder={t("naming.namePlaceholder")}
+              className="text-center rounded-full"
+            />
+
+            <RuntimeModeSelector value={runtimeMode} onChange={onRuntimeModeChange} />
+
+            {/* Link existing project — opt-in via agent features */}
+            {showLinkProject && (
+              <div className="flex flex-col items-center gap-1.5">
+                {existingPath ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary rounded-full px-3 py-1.5">
+                    <FolderOpen className="size-3" />
+                    <span className="truncate max-w-[200px]">{existingPath.split("/").pop()}</span>
+                    <button
+                      type="button"
+                      onClick={() => onExistingPathChange(null)}
+                      className="text-muted-foreground hover:text-foreground ml-1"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const { tauriAgents } = await import("../../lib/tauri");
+                      const picked = await tauriAgents.pickDirectory();
+                      if (picked) {
+                        onExistingPathChange(picked);
+                        if (!name.trim()) {
+                          const folderName = picked.replace(/\/$/, "").split("/").pop() ?? "";
+                          onNameChange(folderName);
+                        }
+                      }
+                    }}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+                  >
+                    <FolderOpen className="size-3" />
+                    {t("naming.linkExistingProject")}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* AI model selector */}
+            <InlineModelSelector
+              provider={provider}
+              model={model}
+              onSelect={onProviderChange}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Color palette */}
-      <div className="flex items-center gap-2 mb-6">
-        {AGENT_COLORS.map((c) => {
-          const hex = colorHex(c);
-          const isSelected = color === c.id || color === c.light || color === c.dark;
-          return (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => onColorChange(c.id)}
-              className={cn(
-                "h-7 w-7 rounded-full flex items-center justify-center transition-all duration-150",
-                isSelected
-                  ? "ring-2 ring-offset-2 ring-foreground/30"
-                  : "hover:scale-110",
-              )}
-              style={{ backgroundColor: hex }}
-            >
-              {isSelected && (
-                <Check className="h-3.5 w-3.5 text-white" />
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4">
-        <Input
-          autoFocus
-          value={name}
-          onChange={(e) => onNameChange(e.target.value)}
-          placeholder={t("naming.namePlaceholder")}
-          className="text-center rounded-full"
-        />
-
-        {/* Link existing project — opt-in via agent features */}
-        {showLinkProject && (
-          <div className="flex flex-col items-center gap-1.5">
-            {existingPath ? (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary rounded-full px-3 py-1.5">
-                <FolderOpen className="size-3" />
-                <span className="truncate max-w-[200px]">{existingPath.split("/").pop()}</span>
-                <button
-                  type="button"
-                  onClick={() => onExistingPathChange(null)}
-                  className="text-muted-foreground hover:text-foreground ml-1"
-                >
-                  &times;
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={async () => {
-                  const { tauriAgents } = await import("../../lib/tauri");
-                  const picked = await tauriAgents.pickDirectory();
-                  if (picked) {
-                    onExistingPathChange(picked);
-                    if (!name.trim()) {
-                      const folderName = picked.replace(/\/$/, "").split("/").pop() ?? "";
-                      onNameChange(folderName);
-                    }
-                  }
-                }}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
-              >
-                <FolderOpen className="size-3" />
-                {t("naming.linkExistingProject")}
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* AI model selector */}
-        <InlineModelSelector
-          provider={provider}
-          model={model}
-          onSelect={onProviderChange}
-        />
-
-        {error && (
-          <p className="text-xs text-destructive text-center">{error}</p>
-        )}
-        <Button
-          type="submit"
-          disabled={!name.trim()}
-          className="w-full rounded-full"
-        >
-          {t("naming.createAgent")}
-        </Button>
-      </form>
-    </div>
+      <footer className="shrink-0 px-6 pb-6 pt-2">
+        <div className="mx-auto w-full max-w-sm space-y-2">
+          {error && (
+            <p className="text-xs text-destructive text-center">{error}</p>
+          )}
+          <Button
+            type="submit"
+            disabled={!name.trim()}
+            className="w-full rounded-full"
+          >
+            {t("naming.createAgent")}
+          </Button>
+        </div>
+      </footer>
+    </form>
   );
 }
 
@@ -229,7 +249,7 @@ export function InlineModelSelector({
       </button>
 
       {open && (
-        <div className="mt-2 max-h-72 overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-1 space-y-0.5">
+        <div className="mt-2 max-h-[min(18rem,40vh)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-1 space-y-0.5">
           {PROVIDERS.map((prov) => {
             const status = statuses[prov.id];
             const connected = (status?.cli_installed && status?.authenticated) ?? false;

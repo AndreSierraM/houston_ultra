@@ -11,6 +11,8 @@ import {
   resolveAgentColor,
 } from "@houston-ai/core";
 import { AiStepFooter } from "./ai-step-footer";
+import type { AgentRuntimeMode } from "../../lib/cloud-client";
+import { RuntimeModeSelector } from "./runtime-mode-selector";
 
 interface AiReviewStepProps {
   name: string;
@@ -23,6 +25,8 @@ interface AiReviewStepProps {
   onSubmit: () => void;
   creating: boolean;
   error: string | null;
+  runtimeMode: AgentRuntimeMode;
+  onRuntimeModeChange: (mode: AgentRuntimeMode) => void;
 }
 
 export function AiReviewStep({
@@ -36,6 +40,8 @@ export function AiReviewStep({
   onSubmit,
   creating,
   error,
+  runtimeMode,
+  onRuntimeModeChange,
 }: AiReviewStepProps) {
   const { t } = useTranslation("shell");
   const resolvedColor = resolveAgentColor(color);
@@ -85,6 +91,8 @@ export function AiReviewStep({
               className="rounded-xl"
             />
           </div>
+
+          <RuntimeModeSelector value={runtimeMode} onChange={onRuntimeModeChange} />
 
           {/* Instructions */}
           <div className="space-y-2">

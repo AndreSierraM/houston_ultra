@@ -42,7 +42,9 @@ export function ChatModelSelector({
 
   const currentProvider = getProvider(provider);
   const currentModel = getModel(provider, model);
-  const displayLabel = currentModel?.label ?? currentProvider?.subtitle ?? t("modelSelector.selectModel");
+  const displayLabel =
+    currentModel?.label ?? model ?? currentProvider?.subtitle ?? t("modelSelector.selectModel");
+  const displayTitle = currentModel?.label ?? model ?? displayLabel;
 
   // Honour `lockedProvider` only when it points at a currently-active
   // provider that the engine reports as installed. Two cases drop the
@@ -69,16 +71,21 @@ export function ChatModelSelector({
   return (
     // Stop pointer events from bubbling — prevents the board detail panel
     // from interpreting dropdown clicks as "click outside → close panel".
-    <div onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+    <div
+      className="min-w-0 max-w-[11rem] shrink"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="flex items-center gap-1.5 h-7 px-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            title={displayTitle}
+            className="flex items-center gap-1.5 h-7 px-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring min-w-0 max-w-full"
           >
-            <ProviderIcon providerId={provider} className="size-3.5" />
-            <span>{displayLabel}</span>
-            <ChevronDown className="size-3 opacity-60" />
+            <ProviderIcon providerId={provider} className="size-3.5 shrink-0" />
+            <span className="truncate">{displayLabel}</span>
+            <ChevronDown className="size-3 opacity-60 shrink-0" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent

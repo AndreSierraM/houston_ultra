@@ -1,5 +1,39 @@
 {
   "shareMenu": "Compartir con un amigo",
+  "shareAccessMenu": "Compartir acceso",
+  "cloudShare": {
+    "eyebrow": "Compartir acceso · {{name}}",
+    "title": "¿Quién puede usar este agente?",
+    "body": "Invita a tu equipo con su ID de usuario de Houston. Pueden usar este agente en la nube según el rol que elijas.",
+    "userIdLabel": "ID de usuario",
+    "userIdPlaceholder": "Pega su UUID",
+    "roleLabel": "Rol",
+    "roles": {
+      "viewer": "Lector",
+      "operator": "Operador",
+      "admin": "Administrador"
+    },
+    "submit": "Dar acceso",
+    "submitting": "Guardando.",
+    "revoke": "Revocar",
+    "revoking": "Revocando.",
+    "currentShares": "Personas con acceso",
+    "noShares": "Por ahora solo tú tienes acceso.",
+    "loading": "Cargando accesos.",
+    "close": "Listo",
+    "errors": {
+      "loadFailed": "No pude cargar los accesos.",
+      "invalidUserId": "Ingresa un ID de usuario válido.",
+      "grantFailed": "No pude dar acceso.",
+      "revokeFailed": "No pude revocar el acceso."
+    },
+    "toasts": {
+      "grantedTitle": "Acceso concedido",
+      "grantedDescription": "Ya pueden usar este agente.",
+      "revokedTitle": "Acceso revocado",
+      "revokedDescription": "Ya no pueden usar este agente."
+    }
+  },
   "newAgent": {
     "fromFriendCard": "De un amigo",
     "fromFriendDescription": "Sube un archivo que alguien te compartió y trae su agente a tu espacio de trabajo."

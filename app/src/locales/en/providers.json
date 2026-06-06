@@ -76,6 +76,21 @@
     "codeCopyFailed": "Couldn't copy the code",
     "cancel": "Cancel"
   },
+  "dualPathConnect": {
+    "or": "or",
+    "useApiKeyInstead": "Use API key instead"
+  },
+  "cliConnect": {
+    "title": "Connect {{name}}",
+    "description": "Sign in with your existing account. Houston uses the same CLI login as on your machine.",
+    "descriptionAnthropic": "Sign in with your Claude subscription. Houston uses the same login as Claude Code on your machine.",
+    "descriptionOpenai": "Sign in with your ChatGPT account. Houston uses the same login as Codex on your machine.",
+    "signInWith": "Sign in with {{name}}",
+    "signingIn": "Opening browser...",
+    "signInFailed": "Couldn't start {{name}} sign-in",
+    "signInRecommended": "Recommended. Uses your existing subscription.",
+    "cancel": "Cancel"
+  },
   "geminiConnect": {
     "title": "Connect {{name}}",
     "description": "Sign in with your Google account to use the free Gemini tier, the same one the gemini CLI uses outside Houston.",
@@ -85,6 +100,12 @@
     "signInRecommended": "Recommended. Uses the free personal tier, no payment required.",
     "or": "or",
     "useApiKeyAdvanced": "Use an API key (advanced)",
+    "cancel": "Cancel"
+  },
+  "apiKeyConnect": {
+    "title": "Connect {{name}}",
+    "description": "Paste an API key from the provider console. Houston stores it locally on your machine.",
+    "connectButton": "Connect {{name}}",
     "openConsole": "Open the {{name}} console",
     "openConsoleFailed": "Couldn't open the {{name}} console",
     "placeholder": "Paste your key here",
@@ -93,6 +114,10 @@
     "saveKey": "Save and connect",
     "saving": "Saving...",
     "saveFailed": "Couldn't save your {{name}} key",
+    "saveUnavailable": "API key connect for this provider is not available yet. Use sign-in above for now.",
     "cancel": "Cancel"
+  },
+  "openrouterConnect": {
+    "description": "Create an API key at OpenRouter and paste it here. Houston uses it only to run your agents through Codex."
   }
 }

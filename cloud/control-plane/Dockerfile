@@ -1,0 +1,18 @@
+FROM rust:1-slim-bookworm AS build
+WORKDIR /src
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY Cargo.toml Cargo.lock ./
+COPY engine/ engine/
+COPY cloud/control-plane/ cloud/control-plane/
+COPY app/houston-tauri/ app/houston-tauri/
+COPY app/src-tauri/ app/src-tauri/
+COPY ui/agent-schemas/ ui/agent-schemas/
+RUN cargo build --release -p houston-cloud-control-plane
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates docker.io \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=build /src/target/release/houston-cloud-control-plane /usr/local/bin/houston-cloud-control-plane
+EXPOSE 8788
+CMD ["/usr/local/bin/houston-cloud-control-plane"]

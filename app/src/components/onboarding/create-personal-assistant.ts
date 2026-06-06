@@ -1,3 +1,4 @@
+import { isConfigProvider } from "../../data/config";
 import { tauriConfig } from "../../lib/tauri";
 import type { Agent } from "../../lib/types";
 import { useAgentStore } from "../../stores/agents";
@@ -27,7 +28,7 @@ export async function createPersonalAssistantForWorkspace(
     const cfg = await tauriConfig.read(agent.folderPath);
     await tauriConfig.write(agent.folderPath, {
       ...cfg,
-      ...(options.provider === "anthropic" || options.provider === "openai"
+      ...(options.provider && isConfigProvider(options.provider)
         ? { provider: options.provider }
         : {}),
       ...(options.model ? { model: options.model } : {}),

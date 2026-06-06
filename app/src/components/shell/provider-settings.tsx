@@ -3,13 +3,13 @@ import { useTranslation } from "react-i18next";
 import type { HoustonEvent } from "@houston-ai/core";
 import { Spinner, ConfirmDialog } from "@houston-ai/core";
 import { tauriProvider, type ProviderStatus } from "../../lib/tauri";
-import { PROVIDERS, type ProviderInfo } from "../../lib/providers";
+import { PROVIDERS, usesConnectDialog, type ProviderInfo } from "../../lib/providers";
 import { useClaudeInstall } from "../../hooks/use-claude-install";
 import { useUIStore } from "../../stores/ui";
 import { analytics } from "../../lib/analytics";
 import { subscribeHoustonEvents } from "../../lib/events";
 import { osIsTauri } from "../../lib/os-bridge";
-import { GeminiConnectDialog } from "./gemini-connect-dialog";
+import { ProviderConnectDialog } from "./provider-connect-dialog";
 import { ProviderLoginDialog } from "./provider-login-dialog";
 import { ProviderAccountRow } from "./provider-account-row";
 import { providerAppearsConnected } from "./provider-reconnect-state";
@@ -197,7 +197,7 @@ export function ProviderSettings() {
   }, [addToast, loadStatuses, patchAuthState, t]);
 
   const handleConnect = async (provider: ProviderInfo) => {
-    if (provider.loginKind === "apiKey") {
+    if (usesConnectDialog(provider)) {
       setApiKeyDialogFor(provider);
       return;
     }
@@ -289,7 +289,7 @@ export function ProviderSettings() {
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-2">
+      <div className="grid min-w-0 grid-cols-1 gap-2">
         {orderedProviders.map((prov) => {
           const status = statuses[prov.id];
           const connected = status ? providerAppearsConnected(status) : false;
@@ -326,7 +326,7 @@ export function ProviderSettings() {
         }}
       />
 
-      <GeminiConnectDialog
+      <ProviderConnectDialog
         provider={apiKeyDialogFor}
         onOpenChange={(open) => {
           if (!open) setApiKeyDialogFor(null);

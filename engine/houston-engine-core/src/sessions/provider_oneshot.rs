@@ -18,6 +18,7 @@
 //! CLI has provider-specific spawn quirks (env scrubbing, args, HOME
 //! isolation) that the trait doesn't model.
 
+use crate::provider;
 use houston_terminal_manager::{claude_path, gemini_home, Provider};
 use serde_json::Value;
 use std::time::Duration;
@@ -27,6 +28,21 @@ use tokio::time::timeout;
 /// Run a single prompt through the configured provider CLI and return the
 /// raw text output. `model` must be already resolved by the caller (no
 /// `Option` — pick the appropriate default before calling).
+const OPENROUTER_ENV_VAR: &str = "OPENROUTER_API_KEY";
+const ANTHROPIC_ENV_VAR: &str = "ANTHROPIC_API_KEY";
+const OPENAI_ENV_VAR: &str = "OPENAI_API_KEY";
+const GEMINI_ENV_VAR: &str = "GEMINI_API_KEY";
+
+/// Process-local Codex overrides for OpenRouter (see `cloud/openrouter-spike.md`).
+/// Houston never mutates `~/.codex/config.toml`; these apply only to the child.
+pub(crate) const OPENROUTER_CODEX_CONFIG: &[&str] = &[
+    r#"model_provider="openrouter""#,
+    r#"model_providers.openrouter.name="OpenRouter""#,
+    r#"model_providers.openrouter.base_url="https://openrouter.ai/api/v1""#,
+    r#"model_providers.openrouter.env_key="OPENROUTER_API_KEY""#,
+    r#"model_providers.openrouter.wire_api="responses""#,
+];
+
 pub async fn run_provider_oneshot(
     prompt: &str,
     provider: Provider,
@@ -36,6 +52,7 @@ pub async fn run_provider_oneshot(
     match provider.id() {
         "anthropic" => run_claude(prompt, model, time_limit).await,
         "openai" => run_codex(prompt, model, time_limit).await,
+        "openrouter" => run_openrouter_codex(prompt, model, time_limit).await,
         "gemini" => run_gemini(prompt, model, time_limit).await,
         unknown => Err(format!(
             "no one-shot invocation wired up for provider {unknown:?}"
@@ -48,6 +65,9 @@ async fn run_claude(prompt: &str, model: &str, time_limit: Duration) -> Result<S
     cmd.env("PATH", claude_path::shell_path());
     cmd.env_remove("CLAUDE_CODE_ENTRYPOINT");
     cmd.env_remove("CLAUDECODE");
+    if let Some(key) = read_env_or_stored(ANTHROPIC_ENV_VAR, provider::read_anthropic_api_key().await)? {
+        cmd.env(ANTHROPIC_ENV_VAR, key);
+    }
     cmd.arg("-p")
         .arg("--model")
         .arg(model)
@@ -59,6 +79,77 @@ async fn run_claude(prompt: &str, model: &str, time_limit: Duration) -> Result<S
 }
 
 async fn run_codex(prompt: &str, model: &str, time_limit: Duration) -> Result<String, String> {
+    let mut cmd = build_codex_oneshot_command(model, &[]);
+    inject_openai_api_key(&mut cmd).await?;
+    let stdout = run_command(cmd, prompt, time_limit).await?;
+    extract_codex_text(&stdout)
+}
+
+async fn run_openrouter_codex(
+    prompt: &str,
+    model: &str,
+    time_limit: Duration,
+) -> Result<String, String> {
+    let mut cmd = build_codex_oneshot_command(model, OPENROUTER_CODEX_CONFIG);
+    inject_openrouter_api_key(&mut cmd).await?;
+    let stdout = run_command(cmd, prompt, time_limit).await?;
+    extract_codex_text(&stdout)
+}
+
+/// Inject `OPENROUTER_API_KEY` into the Codex child env. Missing key returns
+/// an error so summarize/generate_instructions never spawn unauthenticated.
+async fn inject_openrouter_api_key(cmd: &mut tokio::process::Command) -> Result<(), String> {
+    let key = read_env_or_stored(OPENROUTER_ENV_VAR, provider::read_openrouter_api_key().await)?
+        .ok_or_else(|| {
+            "OpenRouter API key missing. Connect OpenRouter in settings.".to_string()
+        })?;
+    cmd.env(OPENROUTER_ENV_VAR, key);
+    Ok(())
+}
+
+async fn inject_openai_api_key(cmd: &mut tokio::process::Command) -> Result<(), String> {
+    if codex_oauth_configured() {
+        return Ok(());
+    }
+    let key = read_env_or_stored(OPENAI_ENV_VAR, provider::read_openai_api_key().await)?
+        .ok_or_else(|| {
+            "OpenAI API key missing. Connect OpenAI in settings or sign in with ChatGPT."
+                .to_string()
+        })?;
+    cmd.env(OPENAI_ENV_VAR, key);
+    Ok(())
+}
+
+async fn inject_gemini_api_key(cmd: &mut tokio::process::Command) -> Result<(), String> {
+    if let Some(key) = read_env_or_stored(GEMINI_ENV_VAR, provider::read_gemini_api_key().await)? {
+        cmd.env(GEMINI_ENV_VAR, key);
+    }
+    Ok(())
+}
+
+fn read_env_or_stored(
+    env_var: &str,
+    stored: Result<Option<String>, crate::error::CoreError>,
+) -> Result<Option<String>, String> {
+    if let Ok(value) = std::env::var(env_var) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Ok(Some(trimmed.to_string()));
+        }
+    }
+    stored
+        .map_err(|e| e.to_string())
+        .map(|opt| opt.filter(|key| !key.trim().is_empty()))
+}
+
+fn codex_oauth_configured() -> bool {
+    provider::codex_oauth_tokens_present()
+}
+
+fn build_codex_oneshot_command(
+    model: &str,
+    extra_config: &[&str],
+) -> tokio::process::Command {
     // Prefer the bundled codex (pinned in `cli-deps.json`) so one-shot
     // generation can't get sabotaged by a stale `nvm`/`brew` codex on the
     // user's PATH that doesn't recognize the model we picked.
@@ -69,18 +160,20 @@ async fn run_codex(prompt: &str, model: &str, time_limit: Duration) -> Result<St
     cmd.arg("exec")
         .arg("--json")
         .arg("--dangerously-bypass-approvals-and-sandbox")
-        .arg("--skip-git-repo-check")
-        // Override `model_reasoning_effort` so a stale global
-        // `~/.codex/config.toml` (newer Codex CLIs allow `xhigh`, older
-        // ones reject it) can't kill one-shot generation. Callers needing
-        // depth pick the model accordingly; we don't bake an effort here.
-        .arg("-c")
+        .arg("--skip-git-repo-check");
+    for override_cfg in extra_config {
+        cmd.arg("-c").arg(*override_cfg);
+    }
+    // Override `model_reasoning_effort` so a stale global
+    // `~/.codex/config.toml` (newer Codex CLIs allow `xhigh`, older
+    // ones reject it) can't kill one-shot generation. Callers needing
+    // depth pick the model accordingly; we don't bake an effort here.
+    cmd.arg("-c")
         .arg("model_reasoning_effort=\"low\"")
         .arg("--model")
         .arg(model)
         .arg("-");
-    let stdout = run_command(cmd, prompt, time_limit).await?;
-    extract_codex_text(&stdout)
+    cmd
 }
 
 async fn run_gemini(prompt: &str, model: &str, time_limit: Duration) -> Result<String, String> {
@@ -139,6 +232,8 @@ async fn run_gemini(prompt: &str, model: &str, time_limit: Duration) -> Result<S
     // unrelated user prompts. The runtime HOME has no project files at
     // all, so output depends only on the user's prompt body.
     cmd.current_dir(&runtime_home);
+
+    inject_gemini_api_key(&mut cmd).await?;
 
     // `--skip-trust` mirrors gemini_runner: gemini-cli's trusted-folders
     // check otherwise refuses to run in Houston-managed workspace dirs
@@ -228,5 +323,32 @@ mod tests {
     fn returns_error_when_no_agent_message() {
         let raw = r#"{"type":"thread.started","thread_id":"t1"}"#;
         assert!(extract_codex_text(raw).is_err());
+    }
+
+    #[test]
+    fn openrouter_codex_config_matches_spike_contract() {
+        assert_eq!(OPENROUTER_CODEX_CONFIG.len(), 5);
+        assert!(OPENROUTER_CODEX_CONFIG[0].contains("model_provider"));
+        assert!(OPENROUTER_CODEX_CONFIG[1].contains("openrouter.name"));
+        assert!(OPENROUTER_CODEX_CONFIG[2].contains("openrouter.ai"));
+        assert!(OPENROUTER_CODEX_CONFIG[3].contains("OPENROUTER_API_KEY"));
+        assert!(OPENROUTER_CODEX_CONFIG[4].contains("wire_api"));
+    }
+
+    #[test]
+    fn codex_oneshot_command_includes_openrouter_overrides_before_model() {
+        let cmd = build_codex_oneshot_command("openai/gpt-4o-mini", OPENROUTER_CODEX_CONFIG);
+        let args: Vec<String> = cmd
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        let model_pos = args.iter().position(|a| a == "--model").expect("--model");
+        let first_override = args
+            .iter()
+            .position(|a| a.contains("model_provider"))
+            .expect("openrouter override");
+        assert!(first_override < model_pos);
+        assert_eq!(args[model_pos + 1], "openai/gpt-4o-mini");
     }
 }
