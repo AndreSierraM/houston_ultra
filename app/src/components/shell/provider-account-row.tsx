@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import type { ProviderInfo } from "../../lib/providers";
 import type { ClaudeInstallState } from "../../hooks/use-claude-install";
 import { ClaudeInstallHint } from "./claude-install-hint";
-import { ClaudeLogo, OpenAILogo, OpenRouterLogo, GeminiLogo } from "./provider-logos";
+import { ClaudeLogo, OpenAILogo, OpenRouterLogo } from "./provider-logos";
 
 function ProviderLogo({ provider }: { provider: ProviderInfo }) {
   switch (provider.id) {
@@ -13,8 +13,6 @@ function ProviderLogo({ provider }: { provider: ProviderInfo }) {
       return <OpenAILogo />;
     case "openrouter":
       return <OpenRouterLogo />;
-    case "gemini":
-      return <GeminiLogo />;
     default:
       return (
         <span className="text-[10px] font-semibold tracking-tight text-muted-foreground">
@@ -33,6 +31,9 @@ export function ProviderAccountRow({
   onSignOut,
   claudeInstall,
   onCancel,
+  cloudSyncAvailable = false,
+  cloudSyncPending = false,
+  onCloudSync,
 }: {
   provider: ProviderInfo;
   connected: boolean;
@@ -54,6 +55,9 @@ export function ProviderAccountRow({
    * abandoned the OAuth tab can retry without restarting Houston (#237).
    */
   onCancel: () => void;
+  cloudSyncAvailable?: boolean;
+  cloudSyncPending?: boolean;
+  onCloudSync?: () => void;
 }) {
   const { t } = useTranslation("providers");
 
@@ -96,23 +100,42 @@ export function ProviderAccountRow({
           </div>
         </div>
         {!showInstallHint && (
-          <button
-            type="button"
-            onClick={pending ? onCancel : connected ? onSignOut : onConnect}
-            title={pending ? t("card.cancelTitle", { name: provider.name }) : undefined}
-            className="text-[12px] font-medium px-2.5 py-1 rounded-md border border-input bg-background hover:bg-black/[0.05] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 shrink-0"
-          >
-            {pending ? (
-              <span className="inline-flex items-center gap-1.5">
-                <Loader2 className="size-3.5 animate-spin" />
-                {t("row.cancel")}
-              </span>
-            ) : connected ? (
-              t("row.signOut")
-            ) : (
-              t("row.connect")
+          <div className="flex shrink-0 items-center gap-1.5">
+            {connected && cloudSyncAvailable && onCloudSync && (
+              <button
+                type="button"
+                onClick={onCloudSync}
+                disabled={cloudSyncPending}
+                className="text-[12px] font-medium px-2.5 py-1 rounded-md border border-input bg-background hover:bg-black/[0.05] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-60"
+              >
+                {cloudSyncPending ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    {t("row.syncingToCloud")}
+                  </span>
+                ) : (
+                  t("row.syncToCloud")
+                )}
+              </button>
             )}
-          </button>
+            <button
+              type="button"
+              onClick={pending ? onCancel : connected ? onSignOut : onConnect}
+              title={pending ? t("card.cancelTitle", { name: provider.name }) : undefined}
+              className="text-[12px] font-medium px-2.5 py-1 rounded-md border border-input bg-background hover:bg-black/[0.05] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 shrink-0"
+            >
+              {pending ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  {t("row.cancel")}
+                </span>
+              ) : connected ? (
+                t("row.signOut")
+              ) : (
+                t("row.connect")
+              )}
+            </button>
+          </div>
         )}
       </div>
       {showInstallHint && claudeInstall && (

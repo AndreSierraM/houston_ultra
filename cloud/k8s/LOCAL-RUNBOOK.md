@@ -102,11 +102,23 @@ Reiniciar la app para que Vite cargue las variables:
 cd app && pnpm tauri dev
 ```
 
-## 6. Agente Nube 24/7 (E2E)
+## 6. Providers (copiar/pegar API keys)
+
+La imagen `houston/engine:dev` incluye **solo Claude Code y Codex**. No hay Gemini CLI ni Composio en el pod.
+
+En la app Houston (antes o al crear el agente cloud):
+
+1. **Settings → Providers** → pegar API key de **Anthropic** (Claude).
+2. Pegar API key de **OpenAI** (Codex) o **OpenRouter** (rutea vía Codex).
+3. Al crear agente **Nube 24/7**, dejar activada la sincronización de credenciales al pod.
+
+No hace falta OAuth en el servidor ni instalar CLIs en el Mac para cloud.
+
+## 7. Agente Nube 24/7 (E2E)
 
 En la app Houston:
 
-1. Crear agente con runtime **Nube 24/7**.
+1. Crear agente con runtime **Nube 24/7** (con credenciales ya pegadas en Settings).
 2. El control plane debe provisionar en el cluster:
    - Namespace `hou-org-{org_id}`
    - Deployment + PVC + Service del engine (`houston/engine:dev`)
@@ -124,7 +136,7 @@ Si el provision falla:
 kubectl -n houston-system logs deployment/houston-control-plane --tail=100
 ```
 
-## 7. Limpieza
+## 8. Limpieza
 
 ```bash
 ./cloud/k8s/scripts/teardown-local-k3d.sh
@@ -174,6 +186,11 @@ Marca cada ítem antes de considerar el entorno válido.
 - [ ] `VITE_HOUSTON_CLOUD_TOKEN` = mismo token que servidor
 - [ ] App reiniciada (`pnpm tauri dev`)
 - [ ] UI permite crear agente **Nube 24/7** sin error de token
+
+### Providers
+
+- [ ] API keys pegadas en Settings (Anthropic, OpenAI u OpenRouter)
+- [ ] Credenciales sincronizadas al crear agente cloud
 
 ### Provision agente
 

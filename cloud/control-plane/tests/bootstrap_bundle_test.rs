@@ -5,6 +5,26 @@ use houston_cloud_control_plane::bootstrap_bundle::resolve_bootstrap;
 use serde_json::json;
 
 #[test]
+fn create_cloud_agent_deserializes_engine_seed_map() {
+    let raw = json!({
+        "name": "Research",
+        "configId": "default",
+        "bootstrapBundle": {
+            "configId": "store-alpha",
+            "name": "Research",
+            "claudeMd": "Instructions",
+            "seeds": {
+                ".houston/goals/goals.json": "[]",
+                ".houston/activity/activity.json": "[]"
+            }
+        }
+    });
+    let body: CreateCloudAgent = serde_json::from_value(raw).expect("deserialize");
+    let bundle = body.bootstrap_bundle.as_ref().unwrap();
+    assert_eq!(bundle.seeds.len(), 2);
+}
+
+#[test]
 fn create_cloud_agent_deserializes_bootstrap_bundle_and_credential_sync() {
     let raw = json!({
         "name": "Research",
@@ -49,4 +69,10 @@ fn resolve_bootstrap_keeps_legacy_fields_without_bundle() {
     assert_eq!(resolved.claude_md.as_deref(), Some("legacy md"));
     assert_eq!(resolved.provider.as_deref(), Some("openai"));
     assert!(resolved.skills.is_empty());
+}
+
+#[test]
+fn agent_instruction_filenames_cover_claude_and_codex() {
+    let files = houston_cloud_control_plane::engine_provision::agent_instruction_filenames();
+    assert_eq!(files.as_slice(), &["CLAUDE.md", "AGENTS.md"]);
 }

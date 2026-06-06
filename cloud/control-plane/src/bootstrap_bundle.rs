@@ -1,6 +1,6 @@
 //! Agent bootstrap bundle and credential sync wire types.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -11,7 +11,7 @@ pub struct AgentBootstrapBundle {
     pub color: Option<String>,
     #[serde(default)]
     pub claude_md: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_seeds")]
     pub seeds: Vec<BootstrapSeed>,
     #[serde(default)]
     pub skills: Vec<BootstrapSkill>,
@@ -19,6 +19,35 @@ pub struct AgentBootstrapBundle {
     pub config_patch: Option<BootstrapConfigPatch>,
     #[serde(default)]
     pub source: Option<BootstrapSource>,
+}
+
+/// Engine exports `seeds` as a JSON object (`Record<string,string>`); legacy
+/// control-plane clients send an array of `{ relPath, content }`. Accept both.
+fn deserialize_seeds<'de, D>(deserializer: D) -> Result<Vec<BootstrapSeed>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Array(items) => items
+            .into_iter()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .map_err(Error::custom),
+        serde_json::Value::Object(map) => map
+            .into_iter()
+            .map(|(rel_path, content)| {
+                let content = match content {
+                    serde_json::Value::String(s) => s,
+                    other => other.to_string(),
+                };
+                Ok(BootstrapSeed { rel_path, content })
+            })
+            .collect(),
+        serde_json::Value::Null => Ok(Vec::new()),
+        _ => Err(Error::custom("seeds must be an array or object")),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -33,6 +62,23 @@ pub struct BootstrapSkill {
 pub struct BootstrapSeed {
     pub rel_path: String,
     pub content: String,
+}
+
+const ACTIVITY_SEED_PATHS: &[&str] = &[
+    ".houston/activity.json",
+    ".houston/activity/activity.json",
+];
+
+/// Activity is runtime-owned; engine create and bootstrap export skip these paths.
+pub fn is_activity_seed_path(path: &str) -> bool {
+    ACTIVITY_SEED_PATHS.contains(&path)
+}
+
+pub fn filter_bootstrap_seeds(seeds: Vec<BootstrapSeed>) -> Vec<BootstrapSeed> {
+    seeds
+        .into_iter()
+        .filter(|s| !is_activity_seed_path(&s.rel_path))
+        .collect()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -113,9 +159,11 @@ pub fn resolve_bootstrap(
         if patch.model.is_some() {
             resolved.model = patch.model.clone();
         }
-        resolved.effort = patch.effort.clone();
+        if patch.effort.is_some() {
+            resolved.effort = patch.effort.clone();
+        }
     }
-    resolved.seeds = bundle.seeds.clone();
+    resolved.seeds = filter_bootstrap_seeds(bundle.seeds.clone());
     resolved.skills = bundle.skills.clone();
     resolved.source = bundle.source.clone();
     resolved
@@ -149,6 +197,51 @@ mod tests {
     use super::*;
 
     #[test]
+    fn resolve_bootstrap_accepts_engine_seed_map() {
+        let raw = serde_json::json!({
+            "configId": "store-alpha",
+            "name": "ignored",
+            "claudeMd": "# Cloud",
+            "seeds": {
+                ".houston/goals/goals.json": "[]",
+                ".houston/activity/activity.json": "[]"
+            }
+        });
+        let bundle: super::AgentBootstrapBundle = serde_json::from_value(raw).expect("deserialize");
+        assert_eq!(bundle.seeds.len(), 2);
+        let resolved = resolve_bootstrap(
+            "My Agent",
+            "default",
+            None,
+            None,
+            None,
+            None,
+            Some(&bundle),
+        );
+        assert_eq!(resolved.seeds.len(), 1);
+        assert_eq!(
+            resolved.seeds[0].rel_path,
+            ".houston/goals/goals.json"
+        );
+    }
+
+    #[test]
+    fn filter_bootstrap_seeds_drops_activity_paths() {
+        let filtered = filter_bootstrap_seeds(vec![
+            BootstrapSeed {
+                rel_path: ".houston/activity/activity.json".into(),
+                content: "[]".into(),
+            },
+            BootstrapSeed {
+                rel_path: ".houston/routines/routines.json".into(),
+                content: "[]".into(),
+            },
+        ]);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].rel_path, ".houston/routines/routines.json");
+    }
+
+    #[test]
     fn resolve_bootstrap_merges_bundle_over_legacy() {
         let bundle = AgentBootstrapBundle {
             config_id: "store".into(),
@@ -156,8 +249,8 @@ mod tests {
             color: None,
             claude_md: Some("# Cloud".into()),
             seeds: vec![BootstrapSeed {
-                rel_path: ".houston/activity/activity.json".into(),
-                content: "{}".into(),
+                rel_path: ".houston/routines/routines.json".into(),
+                content: "[]".into(),
             }],
             skills: vec![BootstrapSkill {
                 slug: "draft-email".into(),

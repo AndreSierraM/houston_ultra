@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { Cloud } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,6 +10,7 @@ import {
   resolveAgentColor,
 } from "@houston-ai/core";
 import type { Agent } from "../lib/types";
+import { isCloudAgent } from "../lib/runtime-router";
 
 interface Props {
   open: boolean;
@@ -50,8 +52,14 @@ export function AgentPickerDialog({ open, onOpenChange, agents, onPick }: Props)
                   className="flex items-center gap-4 rounded-2xl bg-secondary p-4 text-left transition-colors duration-200 hover:bg-accent w-full"
                 >
                   <HoustonAvatar color={color} diameter={48} />
-                  <span className="text-sm font-semibold text-foreground">
+                  <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
                     {a.name}
+                    {isCloudAgent(a) && (
+                      <Cloud
+                        className="size-4 text-muted-foreground"
+                        aria-label={t("agentPicker.cloudBadge")}
+                      />
+                    )}
                   </span>
                 </button>
               );

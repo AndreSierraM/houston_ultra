@@ -42,7 +42,8 @@
   },
   "agentPicker": {
     "title": "Qual agente deve fazer isso?",
-    "description": "Escolha um agente para abrir uma nova conversa."
+    "description": "Escolha um agente para abrir uma nova conversa.",
+    "cloudBadge": "Agente na nuvem"
   },
   "skillPicker": {
     "title": "Escolha um skill",

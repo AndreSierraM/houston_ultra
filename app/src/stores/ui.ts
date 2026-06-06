@@ -91,7 +91,7 @@ interface UIState {
 let toastCounter = 0;
 
 export const useUIStore = create<UIState>((set) => ({
-  viewMode: "chat",
+  viewMode: "activity",
   assistantPanelOpen: false,
   activityPanelId: null,
   activityPanelForceOpen: false,
@@ -117,7 +117,8 @@ export const useUIStore = create<UIState>((set) => ({
   shareAgentId: null,
   importFromFriendOpen: false,
 
-  setViewMode: (viewMode) => set({ viewMode }),
+  setViewMode: (viewMode) =>
+    set((s) => (s.viewMode === viewMode ? s : { viewMode })),
   setAssistantPanelOpen: (assistantPanelOpen) => set({ assistantPanelOpen }),
   setActivityPanelId: (activityPanelId, options) =>
     set({
@@ -125,7 +126,8 @@ export const useUIStore = create<UIState>((set) => ({
       activityPanelForceOpen: activityPanelId ? (options?.forceOpen ?? false) : false,
     }),
   setClaudeAvailable: (claudeAvailable) => set({ claudeAvailable }),
-  setAuthRequired: (authRequired) => set({ authRequired }),
+  setAuthRequired: (authRequired) =>
+    set((s) => (s.authRequired === authRequired ? s : { authRequired })),
 
   addToast: (toast) =>
     set((s) => {
@@ -165,6 +167,8 @@ export const useUIStore = create<UIState>((set) => ({
     }),
   setAgentMissionSearchLoading: (agentPath, loading) =>
     set((s) => {
+      const wasLoading = Boolean(s.agentMissionSearchLoading[agentPath]);
+      if (loading === wasLoading) return s;
       const next = { ...s.agentMissionSearchLoading };
       if (loading) next[agentPath] = true;
       else delete next[agentPath];
@@ -184,7 +188,10 @@ export const useUIStore = create<UIState>((set) => ({
       else delete next[agentPath];
       return { agentArchivedSearchLoading: next };
     }),
-  setMissionPanelOpen: (missionPanelOpen) => set({ missionPanelOpen }),
+  setMissionPanelOpen: (missionPanelOpen) =>
+    set((s) =>
+      s.missionPanelOpen === missionPanelOpen ? s : { missionPanelOpen },
+    ),
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
   setCheatsheetOpen: (cheatsheetOpen) => set({ cheatsheetOpen }),
   setOnBoardNavigate: (onBoardNavigate) => set({ onBoardNavigate }),

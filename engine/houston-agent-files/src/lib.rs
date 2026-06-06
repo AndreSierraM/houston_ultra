@@ -175,6 +175,7 @@ pub fn migrate_agent_data(agent_root: &Path) -> Result<()> {
     // migration above so the config has reached its
     // `.houston/config/config.json` home.
     migrate_config_model_aliases(agent_root)?;
+    migrate_config_provider_gemini(agent_root)?;
 
     // learnings.md → learnings.json (parse markdown bullet list into JSON objects).
     let learnings_md = agent_root.join(".houston/memory/learnings.md");
@@ -231,41 +232,6 @@ pub fn migrate_agent_data(agent_root: &Path) -> Result<()> {
                     "failed to remove legacy product prompt file"
                 ),
             }
-        }
-    }
-
-    // Backfill `GEMINI.md` for agents created before Houston started
-    // seeding it. gemini-cli walks UP from cwd looking for `GEMINI.md`
-    // as project memory; without this the agent's role/instructions
-    // never reach the model. Idempotent: only runs when CLAUDE.md
-    // exists AND GEMINI.md is absent. We deliberately do NOT replace
-    // an existing GEMINI.md (user may have hand-authored a
-    // gemini-specific file).
-    //
-    // Prefer a relative symlink (drift-free). On Windows without
-    // Developer Mode `symlink_file` returns os error 1314 ("A required
-    // privilege is not held by the client"); fall back to a regular
-    // file copy so the agent role still reaches gemini-cli.
-    let claude_md = agent_root.join("CLAUDE.md");
-    let gemini_md = agent_root.join("GEMINI.md");
-    // `symlink_metadata` so we treat broken/dangling symlinks as
-    // "exists" — replacing them would silently swap user config.
-    let gemini_present = fs::symlink_metadata(&gemini_md).is_ok();
-    if claude_md.exists() && !gemini_present {
-        match link_or_copy_role_file(&claude_md, &gemini_md) {
-            Ok(Backfill::Symlinked) => tracing::info!(
-                agent_root = %agent_root.display(),
-                "backfilled GEMINI.md → CLAUDE.md symlink"
-            ),
-            Ok(Backfill::Copied) => tracing::info!(
-                agent_root = %agent_root.display(),
-                "backfilled GEMINI.md from CLAUDE.md (copy fallback)"
-            ),
-            Err(e) => tracing::warn!(
-                agent_root = %agent_root.display(),
-                error = %e,
-                "failed to backfill GEMINI.md"
-            ),
         }
     }
 
@@ -351,36 +317,39 @@ fn migrate_config_model_aliases(agent_root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Outcome of [`link_or_copy_role_file`]: which path the OS accepted.
-/// Reported back to the caller so it can log the right line — copies
-/// drift if `CLAUDE.md` is edited later, symlinks don't.
-enum Backfill {
-    Symlinked,
-    Copied,
-}
-
-/// Create `link_path` so it exposes the content of `target_path`.
-/// Prefers a relative symlink (drift-free); falls back to a regular
-/// file copy when the OS denies symlink creation (Windows without
-/// Developer Mode returns os error 1314).
-fn link_or_copy_role_file(target_path: &Path, link_path: &Path) -> std::io::Result<Backfill> {
-    let target_name = target_path
-        .file_name()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "target has no file name"))?;
-    #[cfg(unix)]
-    {
-        if std::os::unix::fs::symlink(target_name, link_path).is_ok() {
-            return Ok(Backfill::Symlinked);
-        }
+/// Rewrite retired `provider: "gemini"` in per-agent config to `anthropic`.
+/// Idempotent: other values pass through untouched.
+fn migrate_config_provider_gemini(agent_root: &Path) -> Result<()> {
+    let rel = ".houston/config/config.json";
+    let path = agent_root.join(rel);
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    if raw.trim().is_empty() {
+        return Ok(());
     }
-    #[cfg(windows)]
-    {
-        if std::os::windows::fs::symlink_file(target_name, link_path).is_ok() {
-            return Ok(Backfill::Symlinked);
-        }
+    let Ok(serde_json::Value::Object(mut obj)) = serde_json::from_str::<serde_json::Value>(&raw)
+    else {
+        return Ok(());
+    };
+    let is_gemini = obj
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .is_some_and(|p| p == "gemini");
+    if !is_gemini {
+        return Ok(());
     }
-    fs::copy(target_path, link_path)?;
-    Ok(Backfill::Copied)
+    obj.insert(
+        "provider".to_string(),
+        serde_json::Value::String("anthropic".to_string()),
+    );
+    let body = serde_json::to_string_pretty(&serde_json::Value::Object(obj))?;
+    write_file_atomic(agent_root, rel, &body)?;
+    tracing::info!(
+        agent_root = %agent_root.display(),
+        "migrated retired provider gemini → anthropic"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -698,74 +667,27 @@ mod tests {
         migrate_agent_data(dir.path()).unwrap();
     }
 
-    #[cfg(unix)]
     #[test]
-    fn migrate_backfills_gemini_md_symlink_for_existing_agents() {
+    fn migrate_rewrites_gemini_provider_to_anthropic() {
         let dir = TempDir::new().unwrap();
-        // Pre-existing agent dir from before the GEMINI.md change: only
-        // CLAUDE.md exists, no GEMINI.md.
-        fs::write(dir.path().join("CLAUDE.md"), "agent role").unwrap();
+        let config_dir = dir.path().join(".houston/config");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("config.json"),
+            r#"{"provider":"gemini","model":"gemini-3.1-flash-lite"}"#,
+        )
+        .unwrap();
 
         migrate_agent_data(dir.path()).unwrap();
 
-        let gemini_md = dir.path().join("GEMINI.md");
-        assert_eq!(
-            fs::read_link(&gemini_md).unwrap(),
-            Path::new("CLAUDE.md"),
-            "migration must create GEMINI.md → CLAUDE.md symlink",
-        );
-
-        // Idempotent: running again leaves the symlink in place.
-        migrate_agent_data(dir.path()).unwrap();
-        assert_eq!(fs::read_link(&gemini_md).unwrap(), Path::new("CLAUDE.md"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn migrate_does_not_overwrite_existing_gemini_md() {
-        let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("CLAUDE.md"), "claude content").unwrap();
-        fs::write(dir.path().join("GEMINI.md"), "user-authored gemini content").unwrap();
+        let raw = fs::read_to_string(config_dir.join("config.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(v["provider"], "anthropic");
+        assert_eq!(v["model"], "gemini-3.1-flash-lite");
 
         migrate_agent_data(dir.path()).unwrap();
-
-        // User's hand-authored GEMINI.md must survive — we only
-        // backfill when GEMINI.md is absent.
-        assert!(!dir.path().join("GEMINI.md").is_symlink());
-        assert_eq!(
-            fs::read_to_string(dir.path().join("GEMINI.md")).unwrap(),
-            "user-authored gemini content"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn migrate_skips_gemini_md_when_claude_md_missing() {
-        let dir = TempDir::new().unwrap();
-        // No CLAUDE.md → nothing to point at. We must NOT create a
-        // dangling symlink.
-        migrate_agent_data(dir.path()).unwrap();
-        assert!(!dir.path().join("GEMINI.md").exists());
-        assert!(fs::symlink_metadata(dir.path().join("GEMINI.md")).is_err());
-    }
-
-    #[test]
-    fn migrate_gemini_md_backfill_reflects_claude_md_content() {
-        // Platform-agnostic check: whether the OS accepted a symlink
-        // (Unix, Windows with Dev Mode) or fell back to a copy
-        // (Windows without Dev Mode), `read_to_string` on GEMINI.md
-        // must yield the CLAUDE.md content. Regression guard for the
-        // Windows "failed to backfill GEMINI.md symlink: A required
-        // privilege is not held by the client (os error 1314)" path.
-        let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("CLAUDE.md"), "agent role body").unwrap();
-
-        migrate_agent_data(dir.path()).unwrap();
-
-        assert_eq!(
-            fs::read_to_string(dir.path().join("GEMINI.md")).unwrap(),
-            "agent role body",
-        );
+        let raw2 = fs::read_to_string(config_dir.join("config.json")).unwrap();
+        assert_eq!(raw2, raw);
     }
 
     #[test]

@@ -4,6 +4,11 @@
 
 import type { HoustonClient } from "@houston-ai/engine-client";
 import { agentFromPath, currentAgent } from "./agent-lookup";
+import {
+  isCloudEngineFilesystemPath,
+  isSyntheticCloudPath,
+} from "./engine-agent-path";
+import { isCloudConfigured } from "./cloud-client";
 import { getEngine } from "./engine";
 import { getAgentEngineClient, isCloudAgent } from "./runtime-router";
 import type { Agent } from "./types";
@@ -16,12 +21,6 @@ export function agentForEngine(agentPath?: string | null): Agent | null {
   if (!agentPath) return currentAgent();
   const fromPath = agentFromPath(agentPath);
   if (fromPath) return fromPath;
-  if (agentPath.startsWith("cloud://")) {
-    const id = agentPath.slice("cloud://".length);
-    const current = currentAgent();
-    if (current?.id === id && isCloudAgent(current)) return current;
-    return null;
-  }
   const current = currentAgent();
   if (current?.folderPath === agentPath) return current;
   return null;
@@ -46,12 +45,41 @@ function engineAgent(agent?: Agent | null, agentPath?: string | null): Agent | n
   return resolved;
 }
 
+function isExplicitlyCloud(agent?: Agent | null, agentPath?: string | null): boolean {
+  if (agent != null && isCloudAgent(agent)) return true;
+  if (agentPath != null && isSyntheticCloudPath(agentPath)) return true;
+  if (
+    agentPath != null &&
+    isCloudEngineFilesystemPath(agentPath) &&
+    isCloudConfigured()
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function cloudRoutingError(agent?: Agent | null, agentPath?: string | null): Error {
+  const target =
+    (agentPath != null && agentPath) ||
+    (agent != null && `agent ${agent.id}`) ||
+    "cloud agent";
+  return new Error(
+    `[engine-for-agent] cloud engine required for ${target}, but no cloud agent record could be resolved`,
+  );
+}
+
 export async function resolveEngine(
   agent?: Agent | null,
   agentPath?: string | null,
 ): Promise<HoustonClient> {
+  const explicitlyCloud = isExplicitlyCloud(agent, agentPath);
   const resolved = engineAgent(agent, agentPath);
-  if (!resolved || !isCloudAgent(resolved)) {
+
+  if (explicitlyCloud) {
+    if (!resolved || !isCloudAgent(resolved)) {
+      throw cloudRoutingError(agent, agentPath);
+    }
+  } else if (!resolved || !isCloudAgent(resolved)) {
     if (cachedCloudAgentId) {
       clearCloudCache(cachedCloudAgentId);
       cachedCloudAgentId = null;

@@ -7,7 +7,7 @@ use chrono::{DateTime, Duration, Utc};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use x25519_dalek::{PublicKey, StaticSecret};
+use x25519_dalek::StaticSecret;
 
 const SESSION_TTL_SECS: i64 = 300;
 

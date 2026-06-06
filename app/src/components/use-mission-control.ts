@@ -187,7 +187,13 @@ export function useMissionControl(agents: Agent[]) {
   const handleSendMessage = useCallback(
     async (sessionKey: string, text: string, files: File[]) => {
       const entry = sessionMapRef.current[sessionKey];
-      if (!entry) return;
+      if (!entry) {
+        addToast({
+          title: t("errors.sessionMissing"),
+          variant: "error",
+        });
+        return;
+      }
       const { agentPath, activityId } = entry;
       try {
         const paths = await tauriAttachments.save(`activity-${activityId}`, files);
@@ -214,7 +220,7 @@ export function useMissionControl(agents: Agent[]) {
         throw err;
       }
     },
-    [pushFeedItem, t],
+    [pushFeedItem, t, addToast],
   );
 
   // Blank "New mission" create path for Mission Control. Mirrors the

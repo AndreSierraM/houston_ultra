@@ -17,25 +17,28 @@ import {
   NeedsAuthState,
   ErrorState,
 } from "./integrations-states";
+import { CloudComposioSyncBanner } from "./cloud-composio-sync-banner";
 
 const COMPOSIO_DASHBOARD_URL = "https://dashboard.composio.dev";
 
 interface IntegrationsViewProps {
   title?: string;
+  /** When set (per-agent tab), Composio calls route to that agent's engine. */
+  agentPath?: string;
 }
 
-export function IntegrationsView({ title }: IntegrationsViewProps) {
+export function IntegrationsView({ title, agentPath }: IntegrationsViewProps) {
   const { t } = useTranslation("integrations");
-  const { data: result, isLoading: loading, refetch } = useConnections();
-  const reset = useResetConnections();
-  const auth = useComposioAuth(() => reset());
+  const { data: result, isLoading: loading, refetch } = useConnections(agentPath);
+  const reset = useResetConnections(agentPath);
+  const auth = useComposioAuth(() => reset(), agentPath);
   const [installing, setInstalling] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
 
   const isSignedIn = result?.status === "ok";
-  const { data: connectedList } = useConnectedToolkits(isSignedIn);
+  const { data: connectedList } = useConnectedToolkits(isSignedIn, agentPath);
   const connectedSet = useMemo(
     () => new Set(connectedList ?? []),
     [connectedList],
@@ -51,7 +54,7 @@ export function IntegrationsView({ title }: IntegrationsViewProps) {
     setInstalling(true);
     setInstallError(null);
     try {
-      await tauriConnections.installCli();
+      await tauriConnections.installCli(agentPath);
       await reset();
     } catch (e) {
       setInstallError(String(e));
@@ -63,7 +66,7 @@ export function IntegrationsView({ title }: IntegrationsViewProps) {
   const handleSignOut = useCallback(async () => {
     setSigningOut(true);
     try {
-      await tauriConnections.logout();
+      await tauriConnections.logout(agentPath);
       await reset();
       setSignOutOpen(false);
     } finally {
@@ -96,6 +99,8 @@ export function IntegrationsView({ title }: IntegrationsViewProps) {
           </div>
         )}
 
+        {agentPath && <CloudComposioSyncBanner agentPath={agentPath} />}
+
         {loading && <LoadingState />}
 
         {!loading && result?.status === "not_installed" && (
@@ -125,8 +130,9 @@ export function IntegrationsView({ title }: IntegrationsViewProps) {
             <ConnectedAppsSection
               connectedToolkits={connectedSet}
               orgName={orgName}
+              agentPath={agentPath}
             />
-            <BrowseAppsSection connectedToolkits={connectedSet} />
+            <BrowseAppsSection connectedToolkits={connectedSet} agentPath={agentPath} />
           </>
         )}
       </div>

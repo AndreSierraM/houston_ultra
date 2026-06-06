@@ -23,6 +23,7 @@
   },
   "errors": {
     "sessionStart": "Failed to start session: {{error}}",
+    "sessionMissing": "Could not send message. This conversation is no longer available.",
     "modelPersistFailed": "Failed to save model preference"
   },
   "toolRuntimeError": {
@@ -60,6 +61,7 @@
   "modelSelector": {
     "selectModel": "Select model",
     "model": "Model",
+    "chatOnly": "Chat only",
     "notConnected": "Not connected",
     "checking": "Checking...",
     "effort": "Reasoning effort",

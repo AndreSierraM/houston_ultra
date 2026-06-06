@@ -98,7 +98,7 @@ You are a helpful AI assistant.
 "#;
 
 /// Expose `CLAUDE.md` to a sibling CLI's project-memory filename
-/// (`AGENTS.md` for codex, `GEMINI.md` for gemini-cli). First tries a
+/// (`AGENTS.md` for codex). First tries a
 /// relative symlink so the file stays drift-free; on Windows without
 /// Developer Mode that returns "A required privilege is not held by
 /// the client" (os error 1314), so we fall back to a regular file copy.
@@ -145,16 +145,13 @@ fn link_or_copy_role_file(dir: &Path, link_name: &str) -> std::io::Result<()> {
 pub fn seed_agent(dir: &Path) -> Result<(), String> {
     seed_file(dir, "CLAUDE.md", DEFAULT_CLAUDE_MD)?;
 
-    // Codex (`codex`) reads `AGENTS.md` from project memory; Gemini-cli
-    // reads `GEMINI.md`. Houston has one canonical agent role file —
-    // `CLAUDE.md` — and exposes it to the other CLIs so all three
-    // providers see the same per-agent instructions. Prefer a symlink
-    // (drift-free), fall back to a file copy on Windows installs that
-    // lack Developer Mode (symlink_file returns os error 1314 there).
+    // Codex (`codex`) reads `AGENTS.md` from project memory. Houston has
+    // one canonical agent role file (`CLAUDE.md`) and exposes it to Codex
+    // via `AGENTS.md`. Prefer a symlink (drift-free), fall back to a file
+    // copy on Windows installs that lack Developer Mode (symlink_file
+    // returns os error 1314 there).
     link_or_copy_role_file(dir, "AGENTS.md")
         .map_err(|e| format!("Failed to seed AGENTS.md: {e}"))?;
-    link_or_copy_role_file(dir, "GEMINI.md")
-        .map_err(|e| format!("Failed to seed GEMINI.md: {e}"))?;
 
     let prompts_dir = dir.join(".houston/prompts");
     let modes_dir = prompts_dir.join("modes");
@@ -277,14 +274,9 @@ mod tests {
         let d = TempDir::new().unwrap();
         seed_agent(d.path()).unwrap();
 
-        // Codex reads AGENTS.md, Gemini reads GEMINI.md — both must
-        // resolve to the canonical CLAUDE.md so all three CLIs see the
-        // same per-agent role description.
+        // Codex reads AGENTS.md — it must resolve to the canonical CLAUDE.md.
         let agents_md = d.path().join("AGENTS.md");
         assert_eq!(fs::read_link(agents_md).unwrap(), Path::new("CLAUDE.md"));
-
-        let gemini_md = d.path().join("GEMINI.md");
-        assert_eq!(fs::read_link(gemini_md).unwrap(), Path::new("CLAUDE.md"));
     }
 
     #[test]
@@ -292,28 +284,26 @@ mod tests {
         // Platform-agnostic check: regardless of whether the role files
         // ended up as symlinks (Unix, Windows with Dev Mode) or copies
         // (Windows without Dev Mode), reading them must yield the
-        // CLAUDE.md content so gemini-cli + codex see the agent role.
+        // CLAUDE.md content so codex sees the agent role.
         let d = TempDir::new().unwrap();
         seed_agent(d.path()).unwrap();
 
         let claude_body = fs::read_to_string(d.path().join("CLAUDE.md")).unwrap();
         let agents_body = fs::read_to_string(d.path().join("AGENTS.md")).unwrap();
-        let gemini_body = fs::read_to_string(d.path().join("GEMINI.md")).unwrap();
         assert_eq!(agents_body, claude_body);
-        assert_eq!(gemini_body, claude_body);
     }
 
     #[test]
     fn link_or_copy_role_file_preserves_existing_override() {
         // If the user hand-authored a CLI-specific override, seed_agent
-        // must not clobber it. Pre-stage GEMINI.md with bespoke content
+        // must not clobber it. Pre-stage AGENTS.md with bespoke content
         // and confirm the helper leaves it alone.
         let d = TempDir::new().unwrap();
         fs::write(d.path().join("CLAUDE.md"), "houston role").unwrap();
-        fs::write(d.path().join("GEMINI.md"), "user override").unwrap();
-        link_or_copy_role_file(d.path(), "GEMINI.md").unwrap();
+        fs::write(d.path().join("AGENTS.md"), "user override").unwrap();
+        link_or_copy_role_file(d.path(), "AGENTS.md").unwrap();
         assert_eq!(
-            fs::read_to_string(d.path().join("GEMINI.md")).unwrap(),
+            fs::read_to_string(d.path().join("AGENTS.md")).unwrap(),
             "user override"
         );
     }

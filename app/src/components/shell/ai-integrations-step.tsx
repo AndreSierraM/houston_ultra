@@ -13,6 +13,7 @@ import {
 import { useComposioAuth } from "../../hooks/use-composio-auth";
 import { useComposioRefetchOnReturn } from "../../hooks/use-composio-refetch-on-return";
 import { ComposioAuthDialog } from "../composio-auth-dialog";
+import { ComposioCarryPreview } from "./composio-carry-preview";
 import { tauriConnections, tauriSystem } from "../../lib/tauri";
 import { normalizeToolkitSlug } from "../../lib/composio-toolkits";
 
@@ -120,6 +121,10 @@ export function AiIntegrationsStep({
                 );
               })}
             </div>
+          )}
+
+          {isSignedIn && (connectedList?.length ?? 0) > 0 && (
+            <ComposioCarryPreview toolkits={connectedList ?? []} context="integrations" />
           )}
 
         </div>

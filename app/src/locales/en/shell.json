@@ -3,9 +3,11 @@
     "missionControl": "Mission Control",
     "integrations": "Integrations",
     "settings": "Settings",
+    "cloudDebug": "Cloud debug",
     "yourAgents": "Your Agents",
     "selectWorkspace": "Select workspace",
     "addAgent": "New agent",
+    "cloudBadge": "Cloud agent",
     "agentMenu": "Agent menu",
     "color": "Color",
     "changeColor": "Change color",
@@ -187,9 +189,18 @@
     "localDescription": "Runs on this device while Houston is open",
     "cloudTitle": "Use cloud 24/7",
     "cloudDescription": "Always on, even when this app is closed",
-    "syncConnectionTitle": "Use my current connection",
+    "syncConnectionTitle": "Use my current AI connection",
     "syncConnectionDescription": "Copy the AI sign-in you already set up on this computer",
+    "syncComposioTitle": "Bring my connected apps",
+    "syncComposioDescriptionSignedIn": "Your Composio sign-in moves to the cloud. Connect apps here first, then turn this on.",
+    "syncComposioDescriptionWithApps_one": "{{count}} app ready to copy. You will not connect it again in the cloud.",
+    "syncComposioDescriptionWithApps_other": "{{count}} apps ready to copy. You will not connect them again in the cloud.",
+    "syncComposioUnavailable": "Sign in to Composio on this computer first (Integrations in the sidebar)",
+    "carryPreviewLead": "You connected these on this computer. With the switch above on, they work in the cloud too. No second sign-in.",
+    "carryPreviewIntegrationsLead": "You only connect these once. If you pick Cloud 24/7 on the next step, they come with you automatically.",
+    "carryPreviewListAria": "Apps that will work in the cloud without connecting again",
     "cloudCreateSyncSuccess": "Your AI connection is ready in the cloud",
+    "cloudCreateComposioSyncSuccess": "Your connected apps are ready in the cloud. You do not need to connect them again.",
     "cloudCreateSyncFailed": "Cloud agent created, but your AI connection could not be copied",
     "cloudRequiresSignIn": "Sign in to use Cloud 24/7",
     "cloudRequiresToken": "Set VITE_HOUSTON_CLOUD_TOKEN in app/.env.local (same value as HOUSTON_CLOUD_TOKEN on the server)",
@@ -199,6 +210,14 @@
     "cloudPingFail": "Unreachable",
     "cloudUnreachable": "Cannot reach cloud server at {{server}}",
     "cloudNotConfigured": "Set VITE_HOUSTON_CLOUD_BASE in app/.env.local to your control plane URL"
+  },
+  "cloudCreate": {
+    "title": "Launching your cloud agent",
+    "localTitle": "Creating your agent",
+    "stagePrepare": "Preparing instructions and workspace files",
+    "stageLaunch": "Launching your private cloud workspace",
+    "stagePod": "Starting the engine and wiring everything up",
+    "stageReady": "Almost ready, hang tight"
   },
   "newAgent": {
     "dialogTitle": "New agent"
@@ -268,11 +287,11 @@
   },
   "aiIntegrations": {
     "stepTitle": "Connect your apps",
-    "stepDescription": "These apps work well with your agent. Connect them now or do it later from the Integrations tab.",
+    "stepDescription": "Connect the apps your agent needs now. You only do this once, even if the agent runs in the cloud.",
     "notInstalledNote": "You can connect integrations from the Integrations tab after creating your agent.",
     "needsAuthNote": "Sign in to Composio to connect apps now, or do it after creating your agent.",
     "signIn": "Sign in",
-    "connected": "Connected",
+    "connected": "Connected once",
     "connect": "Connect",
     "continueButton": "Continue"
   },
@@ -398,6 +417,97 @@
   },
   "userMenu": {
     "sendFeedback": "Send feedback"
+  },
+  "cloudDebug": {
+    "title": "Cloud orchestration",
+    "subtitle": "Live front and back state for cloud agents (dev only).",
+    "navAria": "Cloud debug sections",
+    "refresh": "Refresh",
+    "loading": "Loading cloud state...",
+    "seedFour": "Seed 4 store agents",
+    "seedDone": "Cloud agents ready",
+    "seedFailed": "Could not seed cloud agents",
+    "nav": {
+      "overview": "Overview",
+      "agents": "Agents",
+      "burst": "Burst lab",
+      "runtime": "Runtime",
+      "flow": "Flow"
+    },
+    "overview": {
+      "configured": "Cloud base URL configured",
+      "auth": "Cloud auth token ready",
+      "controlPlane": "Control plane health",
+      "org": "Organization",
+      "quota": "Cloud agent quota",
+      "quotaDetail": "Up to {{count}} agents"
+    },
+    "agents": {
+      "name": "Agent",
+      "front": "Front (app)",
+      "back": "Back (control plane)",
+      "actions": "Actions",
+      "empty": "No cloud agents yet. Use Seed 4 or create one from New agent.",
+      "selected": "Selected in sidebar",
+      "notSelected": "Not selected",
+      "wsOn": "WebSocket connected",
+      "wsOff": "WebSocket not connected",
+      "unknown": "Unknown",
+      "engineOk": "Engine proxy ok ({{ms}}ms)",
+      "engineDown": "Engine proxy unreachable",
+      "select": "Select"
+    },
+    "runtime": {
+      "current": "Current agent",
+      "wsSlots": "WebSocket pool",
+      "wsSlotsDetail": "{{used}} / {{max}} slots used",
+      "wsConnected": "Connected agent ids",
+      "wsNone": "No proxied WebSockets open"
+    },
+    "flow": {
+      "cloud-config": "1. Cloud URL in app env",
+      "cloud-auth": "2. Bearer token or Supabase session",
+      "control-plane": "3. Control plane /health",
+      "select-agent": "4. User selects cloud agent",
+      "activate-runtime": "5. activateAgentRuntime (watcher + scheduler)",
+      "cloud-ws": "6. ensureAgentEngineWs (event firehose)",
+      "engine-proxy": "7. Engine /health via proxy"
+    },
+    "burst": {
+      "hint": "Create N cloud agents with the same store config and run a full debug scenario on each in parallel (dev only).",
+      "cleanupHint": "Prior burst agents for this config ({{count}}) will be deleted before the run.",
+      "statusRunning": "Burst test is running",
+      "statusIdle": "Burst test is idle",
+      "runSummary": "{{running}} running, {{done}} done, {{error}} failed, {{total}} total",
+      "alreadyRunning": "Burst already in progress",
+      "partialDone": "Burst finished with some failures",
+      "refreshRun": "Check run state",
+      "syncState": "Sync state",
+      "scenarioHint": "Each agent boots (create, activate, WebSocket), gets one autonomous mission on the board, then the lab listens while the agent runs greeting and skill by itself.",
+      "countLabel": "Agent count",
+      "configLabel": "Store config",
+      "modelLabel": "Provider and model",
+      "greetingLabel": "Mission step 1: greeting",
+      "skillLabel": "Mission step 2: skill context",
+      "run": "Run burst",
+      "stop": "Stop burst",
+      "clear": "Clear cards",
+      "stopped": "Burst stopped",
+      "done": "Burst run finished",
+      "failed": "Burst run failed",
+      "emptyChat": "Waiting for chat events...",
+      "pendingId": "Not created yet",
+      "sessionStatus": "Session: {{status}}",
+      "phase": {
+        "pending": "Pending",
+        "creating": "Creating cloud agent",
+        "connecting": "Connecting WebSocket",
+        "mission": "Creating mission",
+        "listening": "Listening (agent working)",
+        "done": "Done",
+        "error": "Error"
+      }
+    }
   },
   "feedback": {
     "title": "Send feedback",

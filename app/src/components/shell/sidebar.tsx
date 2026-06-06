@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { LayoutDashboard, Blend, Settings } from "lucide-react";
+import { LayoutDashboard, Blend, Settings, Workflow } from "lucide-react";
 import { ConfirmDialog } from "@houston-ai/core";
 import { AppSidebar, WorkspaceSwitcher } from "@houston-ai/layout";
 import { useWorkspaceStore } from "../../stores/workspaces";
@@ -14,6 +14,8 @@ import { buildAgentSidebarItems } from "./agent-sidebar-items";
 import { orderAgents } from "../../lib/agent-order";
 import { isCloudAgent } from "../../lib/runtime-router";
 import { DEFAULT_TAB_ID } from "../../agents/standard-tabs";
+import { isCloudDebugPanelEnabled } from "../../lib/cloud-orchestration-debug";
+import { isCloudConfigured } from "../../lib/cloud-client";
 
 export function Sidebar({ children }: { children: ReactNode }) {
   const { t } = useTranslation(["shell", "common", "portable"]);
@@ -45,6 +47,7 @@ export function Sidebar({ children }: { children: ReactNode }) {
       t("shell:sidebar.runningCount", { count }),
     needsYouLabel: (count) =>
       t("shell:sidebar.needsYouCount", { count }),
+    cloudLabel: t("shell:sidebar.cloudBadge"),
     onChangeColor: (agentId, color) => {
       void handleChangeColor(agentId, color);
     },
@@ -54,7 +57,12 @@ export function Sidebar({ children }: { children: ReactNode }) {
         ? t("portable:shareAccessMenu")
         : t("portable:shareMenu"),
   });
-  const isTopLevel = viewMode === "dashboard" || viewMode === "connections" || viewMode === "settings";
+  const cloudDebugEnabled = isCloudDebugPanelEnabled() && isCloudConfigured();
+  const isTopLevel =
+    viewMode === "dashboard" ||
+    viewMode === "connections" ||
+    viewMode === "settings" ||
+    viewMode === "cloud-debug";
 
   const handleWorkspaceSwitch = async (wsId: string) => {
     if (wsId === currentWorkspace?.id) return;
@@ -133,6 +141,16 @@ export function Sidebar({ children }: { children: ReactNode }) {
             onClick: () => setViewMode("connections"),
             dataAttrs: { "data-tour-target": "nav-connections" },
           },
+          ...(cloudDebugEnabled
+            ? [
+                {
+                  id: "cloud-debug",
+                  label: t("shell:sidebar.cloudDebug"),
+                  icon: <Workflow className="h-4 w-4" />,
+                  onClick: () => setViewMode("cloud-debug"),
+                },
+              ]
+            : []),
           {
             id: "settings",
             label: t("shell:sidebar.settings"),

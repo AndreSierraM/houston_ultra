@@ -73,6 +73,7 @@ export function UnauthenticatedCard({
             providerName={providerInfo.name}
             providerId={providerInfo.id}
             apiKeyConsoleUrl={providerInfo.apiKeyConsoleUrl ?? ""}
+            credentialTarget="activeAgent"
             onSaved={() => {
               // Status poll / next send picks up the new key.
             }}
@@ -99,6 +100,7 @@ export function UnauthenticatedCard({
                 provider={providerInfo}
                 expanded={apiKeyExpanded}
                 onExpandedChange={setApiKeyExpanded}
+                credentialTarget="activeAgent"
                 onSaved={() => {
                   // Status poll / next send picks up the new key.
                 }}

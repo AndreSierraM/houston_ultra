@@ -33,7 +33,12 @@ impl ProviderAdapter for OpenRouterAdapter {
 
     fn probe_auth<'a>(&'a self, _cli_path: &'a Path) -> ProbeFuture<'a> {
         Box::pin(async move {
-            if openrouter_credentials::openrouter_api_key_configured() {
+            // Status reflects Houston-stored credentials only. A shell
+            // `OPENROUTER_API_KEY` can run sessions locally but is not
+            // exportable for cloud sync, so treating it as "connected"
+            // made Settings show Sign out + Sync while sync failed with
+            // "connect on this device first".
+            if openrouter_credentials::openrouter_stored_api_key_configured() {
                 ProviderAuthState::Authenticated
             } else {
                 ProviderAuthState::Unauthenticated

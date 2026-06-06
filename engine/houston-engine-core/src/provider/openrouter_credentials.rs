@@ -5,10 +5,8 @@
 
 use super::provider_env_store::{read_stored_api_key, set_api_key, strip_api_key_from_storage};
 use crate::error::{CoreError, CoreResult};
-use houston_terminal_manager::provider_env::canonical_env_path;
 
 pub const ENV_VAR: &str = "OPENROUTER_API_KEY";
-pub const ENV_REL_PATH: &str = ".houston/providers/openrouter/.env";
 const PROVIDER: &str = "openrouter";
 
 pub async fn set_openrouter_api_key(api_key: &str) -> CoreResult<()> {
@@ -17,15 +15,6 @@ pub async fn set_openrouter_api_key(api_key: &str) -> CoreResult<()> {
 
 pub async fn read_openrouter_api_key() -> CoreResult<Option<String>> {
     read_stored_api_key(PROVIDER, ENV_VAR).await
-}
-
-pub fn resolve_env_path() -> CoreResult<std::path::PathBuf> {
-    dirs::home_dir().ok_or_else(|| {
-        CoreError::Internal(
-            "could not resolve home directory for ~/.houston/providers/openrouter/.env".into(),
-        )
-    })?;
-    Ok(canonical_env_path(PROVIDER))
 }
 
 fn validate_key(api_key: &str) -> CoreResult<&str> {
@@ -52,15 +41,9 @@ fn validate_key(api_key: &str) -> CoreResult<&str> {
     Ok(trimmed)
 }
 
-pub(super) fn is_openrouter_api_key_line(line: &str) -> bool {
-    houston_terminal_manager::provider_env::is_env_var_line(line, ENV_VAR)
-}
-
 pub async fn strip_openrouter_api_key_storage() -> CoreResult<()> {
     strip_api_key_from_storage(PROVIDER, ENV_VAR).await
 }
-
-pub(super) use super::provider_env_store::write_atomic;
 
 #[cfg(test)]
 mod tests {

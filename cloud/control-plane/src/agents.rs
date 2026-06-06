@@ -9,13 +9,28 @@ use crate::db::Db;
 use crate::entitlements;
 use crate::engine_provision;
 use crate::error::{ApiError, ApiResult};
-use crate::runtime::{AgentProvisionConfig, RuntimeBackend};
+use crate::runtime::{AgentProvisionConfig, OrgResourceQuota, RuntimeBackend};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
 pub use crate::agent_access::assert_agent_access;
+
+pub async fn update_runtime_status(db: &Db, agent_id: Uuid, status: &str) -> ApiResult<()> {
+    let updated = sqlx::query(
+        "UPDATE cloud_agent_runtimes SET status = $2, updated_at = now() WHERE agent_id = $1",
+    )
+    .bind(agent_id)
+    .bind(status)
+    .execute(db.pool())
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?;
+    if updated.rows_affected() == 0 {
+        return Err(ApiError::not_found("Runtime not provisioned"));
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, FromRow)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +42,7 @@ pub struct CloudAgentRow {
     pub folder_path: String,
     pub created_at: DateTime<Utc>,
     pub last_opened_at: Option<DateTime<Utc>>,
+    pub runtime_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,7 +55,7 @@ pub struct CloudAgent {
     pub color: Option<String>,
     pub created_at: String,
     pub last_opened_at: Option<String>,
-    pub runtime: &'static str,
+    pub runtime: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,6 +71,37 @@ pub struct CreateCloudAgent {
     pub bootstrap_bundle: Option<AgentBootstrapBundle>,
     #[serde(default)]
     pub credential_sync: Option<CredentialSyncOptions>,
+    #[serde(default)]
+    pub parent_agent_id: Option<Uuid>,
+    #[serde(default)]
+    pub worker_ttl_seconds: Option<i32>,
+    #[serde(default)]
+    pub runtime_mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkerAgent {
+    pub name: Option<String>,
+    pub worker_ttl_seconds: Option<i32>,
+}
+
+#[derive(Debug, FromRow)]
+struct ParentAgentRow {
+    org_id: Uuid,
+    name: String,
+    config_id: String,
+    color: Option<String>,
+}
+
+fn parse_runtime_mode(mode: Option<String>) -> ApiResult<String> {
+    let value = mode.unwrap_or_else(|| "cloud_24_7".to_string());
+    match value.as_str() {
+        "cloud_24_7" | "cloud_on_demand" | "cloud_worker" => Ok(value),
+        _ => Err(ApiError::bad_request(
+            "runtimeMode must be cloud_24_7, cloud_on_demand, or cloud_worker",
+        )),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,12 +120,15 @@ fn to_wire(row: CloudAgentRow) -> CloudAgent {
         color: row.color,
         created_at: row.created_at.to_rfc3339(),
         last_opened_at: row.last_opened_at.map(|t| t.to_rfc3339()),
-        runtime: "cloud_24_7",
+        runtime: row.runtime_mode,
     }
 }
 
-const AGENT_SELECT: &str =
-    "a.id, a.name, a.config_id, a.color, a.folder_path, a.created_at, a.last_opened_at";
+const AGENT_SELECT: &str = "a.id, a.name, a.config_id, a.color, a.folder_path, a.created_at, \
+    a.last_opened_at, a.runtime_mode";
+
+// TODO(cloud_worker): scheduled cleanup for rows with worker_ttl_seconds set where
+// created_at + ttl elapsed; teardown pod via runtime.remove and soft-delete agent.
 
 pub async fn list_agents(db: &Db, principal: &Principal) -> ApiResult<Vec<CloudAgent>> {
     let query = format!(
@@ -126,11 +176,12 @@ pub async fn create_agent(
     principal: &Principal,
     body: CreateCloudAgent,
 ) -> ApiResult<CloudAgent> {
-    entitlements::assert_can_create(db, principal).await?;
+    let ent = entitlements::assert_can_create(db, principal).await?;
     let name = body.name.trim();
     if name.is_empty() {
         return Err(ApiError::bad_request("Agent name is required"));
     }
+    let runtime_mode = parse_runtime_mode(body.runtime_mode.clone())?;
     let agent_id = Uuid::new_v4();
     let mut tx = db
         .pool()
@@ -138,8 +189,9 @@ pub async fn create_agent(
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
     sqlx::query(
-        "INSERT INTO cloud_agents (id, org_id, owner_user_id, name, config_id, color)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO cloud_agents
+         (id, org_id, owner_user_id, name, config_id, color, parent_agent_id, worker_ttl_seconds, runtime_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(agent_id)
     .bind(principal.org_id)
@@ -147,6 +199,9 @@ pub async fn create_agent(
     .bind(name)
     .bind(&body.config_id)
     .bind(&body.color)
+    .bind(body.parent_agent_id)
+    .bind(body.worker_ttl_seconds)
+    .bind(&runtime_mode)
     .execute(&mut *tx)
     .await
     .map_err(|e| ApiError::internal(e.to_string()))?;
@@ -159,7 +214,13 @@ pub async fn create_agent(
         body.model.clone(),
         body.bootstrap_bundle.as_ref(),
     );
-    let provision_config = AgentProvisionConfig { bootstrap };
+    let provision_config = AgentProvisionConfig {
+        bootstrap,
+        org_quota: OrgResourceQuota {
+            max_cloud_agents: ent.max_cloud_agents,
+            max_storage_gb: ent.max_storage_gb,
+        },
+    };
     match runtime
         .provision(agent_id, principal.org_id, &provision_config)
         .await
@@ -273,7 +334,7 @@ pub async fn create_agent(
                 color: body.color,
                 created_at: Utc::now().to_rfc3339(),
                 last_opened_at: None,
-                runtime: "cloud_24_7",
+                runtime: runtime_mode,
             });
         }
         Err(e) => {
@@ -323,7 +384,7 @@ pub async fn patch_agent(
             name = COALESCE($2, name),
             color = COALESCE($3, color)
          WHERE id = $1 AND deleted_at IS NULL
-         RETURNING id, name, config_id, color, folder_path, created_at, last_opened_at",
+         RETURNING id, name, config_id, color, folder_path, created_at, last_opened_at, runtime_mode",
     )
     .bind(agent_id)
     .bind(name_update)
@@ -409,6 +470,84 @@ async fn run_credential_sync(
     }
 }
 
+pub async fn create_worker(
+    db: &Db,
+    runtime: &dyn RuntimeBackend,
+    principal: &Principal,
+    parent_id: Uuid,
+    body: CreateWorkerAgent,
+) -> ApiResult<CloudAgent> {
+    assert_agent_access(db, principal, parent_id, "operator").await?;
+    let parent = sqlx::query_as::<_, ParentAgentRow>(
+        "SELECT org_id, name, config_id, color
+         FROM cloud_agents
+         WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(parent_id)
+    .fetch_optional(db.pool())
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
+    .ok_or_else(|| ApiError::not_found("Parent cloud agent not found"))?;
+    if parent.org_id != principal.org_id {
+        return Err(ApiError::forbidden("Parent agent is not in your organization"));
+    }
+    let worker_index: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM cloud_agents
+         WHERE parent_agent_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(parent_id)
+    .fetch_one(db.pool())
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?;
+    let default_name = format!("{} worker-{}", parent.name, worker_index + 1);
+    let name = body
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&default_name)
+        .to_string();
+    create_agent(
+        db,
+        runtime,
+        principal,
+        CreateCloudAgent {
+            name,
+            config_id: parent.config_id,
+            color: parent.color,
+            claude_md: None,
+            provider: None,
+            model: None,
+            bootstrap_bundle: None,
+            credential_sync: None,
+            parent_agent_id: Some(parent_id),
+            worker_ttl_seconds: body.worker_ttl_seconds,
+            runtime_mode: Some("cloud_worker".into()),
+        },
+    )
+    .await
+}
+
+pub async fn list_workers(
+    db: &Db,
+    principal: &Principal,
+    parent_id: Uuid,
+) -> ApiResult<Vec<CloudAgent>> {
+    assert_agent_access(db, principal, parent_id, "viewer").await?;
+    let query = format!(
+        "SELECT {AGENT_SELECT}
+         FROM cloud_agents a
+         WHERE a.parent_agent_id = $1 AND a.deleted_at IS NULL
+         ORDER BY a.created_at DESC"
+    );
+    let rows = sqlx::query_as::<_, CloudAgentRow>(&query)
+        .bind(parent_id)
+        .fetch_all(db.pool())
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    Ok(rows.into_iter().map(to_wire).collect())
+}
+
 pub async fn delete_agent(
     db: &Db,
     runtime: &dyn RuntimeBackend,
@@ -441,4 +580,31 @@ pub async fn delete_agent(
     )
     .await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_runtime_mode_defaults_to_cloud_24_7() {
+        let mode = parse_runtime_mode(None).expect("default");
+        assert_eq!(mode, "cloud_24_7");
+    }
+
+    #[test]
+    fn parse_runtime_mode_accepts_known_modes() {
+        for mode in ["cloud_24_7", "cloud_on_demand", "cloud_worker"] {
+            assert_eq!(
+                parse_runtime_mode(Some(mode.into())).expect(mode),
+                mode
+            );
+        }
+    }
+
+    #[test]
+    fn parse_runtime_mode_rejects_unknown() {
+        let err = parse_runtime_mode(Some("local".into())).unwrap_err();
+        assert!(err.message.contains("runtimeMode"));
+    }
 }

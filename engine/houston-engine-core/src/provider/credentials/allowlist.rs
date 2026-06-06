@@ -8,7 +8,6 @@ use std::path::{Component, Path, PathBuf};
 pub enum CredentialProvider {
     OpenAi,
     Anthropic,
-    Gemini,
     OpenRouter,
     Composio,
 }
@@ -18,7 +17,6 @@ impl CredentialProvider {
         match self {
             Self::OpenAi => "openai",
             Self::Anthropic => "anthropic",
-            Self::Gemini => "gemini",
             Self::OpenRouter => "openrouter",
             Self::Composio => "composio",
         }
@@ -28,7 +26,6 @@ impl CredentialProvider {
         match name {
             "openai" => Ok(Self::OpenAi),
             "anthropic" | "claude" => Ok(Self::Anthropic),
-            "gemini" => Ok(Self::Gemini),
             "openrouter" => Ok(Self::OpenRouter),
             "composio" => Ok(Self::Composio),
             other => Err(CoreError::BadRequest(format!(
@@ -44,12 +41,6 @@ impl CredentialProvider {
             Self::Anthropic => &[
                 ".claude/.credentials.json",
                 ".houston/providers/anthropic/.env",
-            ],
-            Self::Gemini => &[
-                ".gemini/oauth_creds.json",
-                ".gemini/google_accounts.json",
-                ".gemini/settings.json",
-                ".houston/providers/gemini/.env",
             ],
             Self::OpenRouter => &[".houston/providers/openrouter/.env"],
             Self::Composio => &[".composio/user_data.json"],
@@ -82,10 +73,20 @@ pub fn validate_rel_path(provider: CredentialProvider, rel_path: &str) -> CoreRe
 }
 
 pub fn home_join(rel_path: &str) -> CoreResult<PathBuf> {
+    let rel = normalize_rel_path(rel_path)?;
+    // Houston-managed credential files (`.houston/providers/<p>/.env`, plus the
+    // pre-`providers/` legacy `.houston/<p>/.env`) live under the Houston data
+    // root, which is `~/.houston` in release, `~/.dev-houston` in debug, and
+    // honors `HOUSTON_HOME`. Resolving these against the raw home dir broke dev
+    // credential export (key written to `~/.dev-houston` but read from
+    // `~/.houston`). External CLI creds (`.codex`, `.claude`, `.gemini`,
+    // `.composio`) stay under the real home directory.
+    if let Some(under_root) = rel.strip_prefix(".houston/") {
+        return Ok(houston_terminal_manager::houston_data_root::houston_data_root().join(under_root));
+    }
     let home = dirs::home_dir().ok_or_else(|| {
         CoreError::Internal("could not resolve home directory for credential sync".into())
     })?;
-    let rel = normalize_rel_path(rel_path)?;
     Ok(home.join(rel))
 }
 

@@ -1,4 +1,5 @@
-import { deepStrictEqual } from "node:assert";
+import { deepStrictEqual, strictEqual } from "node:assert";
+import chat from "../src/locales/en/chat.json" with { type: "json" };
 import { describe, it } from "node:test";
 import {
   resolveActivityOverride,
@@ -35,6 +36,13 @@ const routineActivity: ActivityOverrideSource = {
   provider: "anthropic",
   model: "claude-opus-4-7",
 };
+
+describe("Mission Control missing-session toast copy", () => {
+  it("defines chat.errors.sessionMissing for send when sessionMap entry is gone", () => {
+    strictEqual(typeof chat.errors.sessionMissing, "string");
+    strictEqual(chat.errors.sessionMissing.length > 0, true);
+  });
+});
 
 describe("resolveActivityOverride (Mission Control send-path override drop fix)", () => {
   it("returns the activity's provider+model when the activity is found", () => {

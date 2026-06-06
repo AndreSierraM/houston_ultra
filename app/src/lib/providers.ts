@@ -18,7 +18,7 @@ export interface ModelOption {
   /**
    * Reasoning-effort levels this model accepts, ordered low→high. Omitted
    * or empty means the model has no effort control and the picker hides the
-   * effort row (e.g. Gemini, Haiku).
+   * effort row (e.g. Haiku).
    */
   effortLevels?: readonly EffortLevel[];
   /**
@@ -45,6 +45,13 @@ export interface ModelOption {
    * gated upward at runtime — e.g. Sonnet 4.6 (200k default → 1M with credits).
    */
   contextWindowMax?: number;
+  /**
+   * When `false`, the model is chat-only under the Codex harness: Houston
+   * blocks sends that need bash, web search, or file tools. OpenRouter models
+   * that do not complete Codex's Responses tool loop (e.g. DeepSeek V3) emit
+   * fake `openrouter_*` calls in plain text instead of real CLI tool events.
+   */
+  agenticTools?: boolean;
 }
 
 /**
@@ -52,7 +59,7 @@ export interface ModelOption {
  *
  * - `"cli"`: CLI login command (e.g. `claude login`, `codex login`).
  * - `"apiKey"`: API-key paste only (OpenRouter).
- * - `"oauth"`: OAuth-primary connect dialog with optional API-key path (Gemini).
+ * - `"oauth"`: OAuth-primary connect dialog with optional API-key path (Anthropic, OpenAI).
  */
 export type ProviderLoginKind = "cli" | "apiKey" | "oauth";
 
@@ -177,55 +184,29 @@ export const PROVIDERS: readonly ProviderInfo[] = [
       {
         id: "anthropic/claude-sonnet-4",
         label: "Claude Sonnet 4",
-        description: "Anthropic Sonnet via OpenRouter.",
+        description: "Anthropic Sonnet via OpenRouter. Full agent tools.",
+        agenticTools: true,
       },
       {
         id: "openai/gpt-4.1",
         label: "GPT-4.1",
-        description: "OpenAI GPT-4.1 via OpenRouter.",
-      },
-      {
-        id: "google/gemini-2.5-pro-preview",
-        label: "Gemini 2.5 Pro",
-        description: "Google Gemini via OpenRouter.",
+        description: "OpenAI GPT-4.1 via OpenRouter. Full agent tools.",
+        agenticTools: true,
       },
       {
         id: "meta-llama/llama-4-maverick",
         label: "Llama 4 Maverick",
-        description: "Meta Llama 4 via OpenRouter.",
+        description: "Meta Llama 4 via OpenRouter. Chat only, no agent tools.",
+        agenticTools: false,
       },
       {
         id: "deepseek/deepseek-chat-v3-0324",
         label: "DeepSeek V3",
-        description: "DeepSeek Chat via OpenRouter.",
+        description: "DeepSeek Chat via OpenRouter. Chat only, no agent tools.",
+        agenticTools: false,
       },
     ],
     defaultModel: "anthropic/claude-sonnet-4",
-  },
-  {
-    id: "gemini",
-    name: "Google",
-    subtitle: "Gemini CLI",
-    cliName: "gemini",
-    installUrl: "https://github.com/google-gemini/gemini-cli",
-    loginCommand: "",
-    cost: "Free tier with Google account",
-    loginKind: "oauth",
-    apiKeyConsoleUrl: "https://aistudio.google.com/apikey",
-    apiKeyEnvVar: "GEMINI_API_KEY",
-    models: [
-      {
-        id: "gemini-2.5-flash",
-        label: "Gemini 2.5 Flash",
-        description: "Fast default model.",
-      },
-      {
-        id: "gemini-2.5-pro",
-        label: "Gemini 2.5 Pro",
-        description: "Most capable Gemini model.",
-      },
-    ],
-    defaultModel: "gemini-2.5-flash",
   },
 ] as const;
 
@@ -330,6 +311,20 @@ export function normalizeLegacyModel(model: string | null | undefined): string |
   return Object.prototype.hasOwnProperty.call(LEGACY_MODEL_ALIASES, model)
     ? LEGACY_MODEL_ALIASES[model]
     : model;
+}
+
+/**
+ * Whether the provider+model can run Codex/Claude agent tools (bash, web
+ * search, edits). Defaults to `true` when the catalog omits the flag.
+ */
+export function modelSupportsAgenticTools(
+  providerId: string | null | undefined,
+  modelId: string | null | undefined,
+): boolean {
+  if (!providerId || !modelId) return true;
+  const model = getModel(providerId, modelId);
+  if (!model) return true;
+  return model.agenticTools !== false;
 }
 
 /** Reasoning-effort levels the given provider+model accepts (low→high). */

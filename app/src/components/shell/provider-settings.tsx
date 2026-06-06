@@ -2,17 +2,30 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { HoustonEvent } from "@houston-ai/core";
 import { Spinner, ConfirmDialog } from "@houston-ai/core";
-import { tauriProvider, type ProviderStatus } from "../../lib/tauri";
+import {
+  cancelLocalProviderLogin,
+  checkLocalProviderStatus,
+  launchLocalProviderLogin,
+  launchLocalProviderLogout,
+} from "../../lib/local-provider-bridge";
 import { PROVIDERS, usesConnectDialog, type ProviderInfo } from "../../lib/providers";
+import { isDualPathConnectProvider } from "../../lib/provider-api-key";
 import { useClaudeInstall } from "../../hooks/use-claude-install";
 import { useUIStore } from "../../stores/ui";
+import { useAgentStore } from "../../stores/agents";
 import { analytics } from "../../lib/analytics";
 import { subscribeHoustonEvents } from "../../lib/events";
 import { providerUsesDeviceAuth } from "../../lib/provider-device-auth";
+import {
+  canSyncProviderCredentialsToCloud,
+  syncProviderCredentialsToCloudAgentSafe,
+} from "../../lib/cloud-agent-create";
+import { isCloudAgent } from "../../lib/runtime-router";
+import type { ProviderStatus } from "../../lib/tauri";
 import { ProviderConnectDialog } from "./provider-connect-dialog";
 import { ProviderLoginDialog } from "./provider-login-dialog";
 import { ProviderAccountRow } from "./provider-account-row";
-import { providerAppearsConnected } from "./provider-reconnect-state";
+import { providerSettingsRowConnected } from "./provider-reconnect-state";
 
 /**
  * Settings-screen variant of the AI provider UI: accounts only.
@@ -45,6 +58,9 @@ export function ProviderSettings() {
     userCode: string | null;
   } | null>(null);
   const addToast = useUIStore((s) => s.addToast);
+  const currentAgent = useAgentStore((s) => s.current);
+  const cloudAgentSelected = currentAgent != null && isCloudAgent(currentAgent);
+  const [cloudSyncPendingId, setCloudSyncPendingId] = useState<string | null>(null);
 
   // First scan is treated as the baseline so opening Settings while a
   // provider is already connected doesn't fire a fake "X connected" toast.
@@ -54,7 +70,7 @@ export function ProviderSettings() {
   const loadStatuses = useCallback(async () => {
     const results = await Promise.all(
       PROVIDERS.map(async (p) => {
-        const status = await tauriProvider.checkStatus(p.id);
+        const status = await checkLocalProviderStatus(p.id);
         // Paint each card the moment ITS probe resolves instead of blocking
         // every card on the slowest provider — each CLI shell-out can take
         // up to its 5s timeout, and gating the whole batch made the section
@@ -71,8 +87,12 @@ export function ProviderSettings() {
       for (const prov of PROVIDERS) {
         const prev = prevStatuses.current[prov.id];
         const cur = next[prov.id];
-        const wasConnected = prev ? providerAppearsConnected(prev) : false;
-        const isConnected = cur ? providerAppearsConnected(cur) : false;
+        const wasConnected = prev
+          ? providerSettingsRowConnected(prev, prov.loginKind)
+          : false;
+        const isConnected = cur
+          ? providerSettingsRowConnected(cur, prov.loginKind)
+          : false;
         if (!wasConnected && isConnected) {
           analytics.track("provider_configured", { provider: prov.id });
         }
@@ -103,9 +123,48 @@ export function ProviderSettings() {
     });
   }, []);
 
+  const syncCredentialsToCloudAgent = useCallback(
+    async (providerId: string) => {
+      if (!currentAgent || !isCloudAgent(currentAgent) || !canSyncProviderCredentialsToCloud(providerId)) {
+        return;
+      }
+      setCloudSyncPendingId(providerId);
+      const result = await syncProviderCredentialsToCloudAgentSafe(currentAgent, providerId);
+      setCloudSyncPendingId((current) => (current === providerId ? null : current));
+      if (result.ok) {
+        addToast({
+          title: t("toast.cloudSyncSuccess", { agent: currentAgent.name }),
+          variant: "success",
+        });
+      } else if (result.reason === "no_local_credentials") {
+        const providerInfo = PROVIDERS.find((p) => p.id === providerId);
+        const providerName = providerInfo?.name ?? providerId;
+        const detailKey = isDualPathConnectProvider(providerInfo)
+          ? "toast.cloudSyncNeedsLocalDetailOAuth"
+          : "toast.cloudSyncNeedsLocalDetail";
+        addToast({
+          title: t("toast.cloudSyncNeedsLocal", { provider: providerName }),
+          description: t(detailKey, {
+            provider: providerName,
+            agent: currentAgent.name,
+          }),
+          variant: "error",
+        });
+      } else {
+        addToast({
+          title: t("toast.cloudSyncFailed", { agent: currentAgent.name }),
+          description: result.message,
+          variant: "error",
+        });
+      }
+    },
+    [addToast, currentAgent, t],
+  );
+
   useEffect(() => {
+    setLoading(true);
     loadStatuses();
-  }, [loadStatuses]);
+  }, [loadStatuses, currentAgent?.id]);
 
   // Anthropic's `claude` is a Houston-managed runtime install (the
   // license forbids bundling it). Track that install here so the
@@ -131,7 +190,12 @@ export function ProviderSettings() {
   useEffect(() => {
     if (!pendingId) return;
     const status = statuses[pendingId];
-    if (status && providerAppearsConnected(status)) {
+    const prov = PROVIDERS.find((p) => p.id === pendingId);
+    if (
+      status &&
+      prov &&
+      providerSettingsRowConnected(status, prov.loginKind)
+    ) {
       setPendingId(null);
     }
   }, [pendingId, statuses]);
@@ -173,6 +237,13 @@ export function ProviderSettings() {
           });
           // Flip the card to connected immediately; loadStatuses reconciles.
           patchAuthState(ev.data.provider, true);
+          if (
+            currentAgent &&
+            isCloudAgent(currentAgent) &&
+            canSyncProviderCredentialsToCloud(ev.data.provider)
+          ) {
+            void syncCredentialsToCloudAgent(ev.data.provider);
+          }
         } else if (ev.data.error) {
           addToast({
             title: t("toast.signInFailed", { provider: prov?.name ?? ev.data.provider }),
@@ -192,9 +263,9 @@ export function ProviderSettings() {
         setPendingId((current) => (current === ev.data.provider ? null : current));
         loadStatuses();
       }
-    });
+    }, currentAgent);
     return off;
-  }, [addToast, loadStatuses, patchAuthState, t]);
+  }, [addToast, currentAgent, loadStatuses, patchAuthState, syncCredentialsToCloudAgent, t]);
 
   const handleConnect = async (provider: ProviderInfo) => {
     if (usesConnectDialog(provider)) {
@@ -207,7 +278,7 @@ export function ProviderSettings() {
       // engine) can't receive the CLI's localhost OAuth callback, so ask
       // for the headless device-code flow. The engine ignores the flag for
       // providers without a device variant (Claude keeps its paste-back).
-      await tauriProvider.launchLogin(provider.id, { deviceAuth: providerUsesDeviceAuth() });
+      await launchLocalProviderLogin(provider.id, { deviceAuth: providerUsesDeviceAuth() });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[provider-settings] launchLogin(${provider.id}) failed:`, msg);
@@ -226,7 +297,7 @@ export function ProviderSettings() {
     // optimistically; the engine's benign ProviderLoginComplete (handled
     // above) is the backstop.
     try {
-      await tauriProvider.cancelLogin(provider.id);
+      await cancelLocalProviderLogin(provider.id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[provider-settings] cancelLogin(${provider.id}) failed:`, msg);
@@ -244,7 +315,7 @@ export function ProviderSettings() {
   const handleSignOut = async (provider: ProviderInfo) => {
     setPendingId(provider.id);
     try {
-      await tauriProvider.launchLogout(provider.id);
+      await launchLocalProviderLogout(provider.id);
       // Logout succeeded — flip the card to disconnected now rather than
       // blocking the spinner on the several-second re-probe. loadStatuses
       // reconciles in the background.
@@ -273,7 +344,7 @@ export function ProviderSettings() {
     const disconnected: ProviderInfo[] = [];
     for (const p of PROVIDERS) {
       const s = statuses[p.id];
-      if (s && providerAppearsConnected(s)) connected.push(p);
+      if (s && providerSettingsRowConnected(s, p.loginKind)) connected.push(p);
       else disconnected.push(p);
     }
     return [...connected, ...disconnected];
@@ -292,7 +363,9 @@ export function ProviderSettings() {
       <div className="grid min-w-0 grid-cols-1 gap-2">
         {orderedProviders.map((prov) => {
           const status = statuses[prov.id];
-          const connected = status ? providerAppearsConnected(status) : false;
+          const connected = status
+            ? providerSettingsRowConnected(status, prov.loginKind)
+            : false;
           return (
             <ProviderAccountRow
               key={prov.id}
@@ -304,6 +377,11 @@ export function ProviderSettings() {
               onSignOut={() => setConfirmSignOutFor(prov)}
               claudeInstall={prov.id === "anthropic" ? claudeInstall : null}
               onCancel={() => handleCancel(prov)}
+              cloudSyncAvailable={
+                cloudAgentSelected && connected && canSyncProviderCredentialsToCloud(prov.id)
+              }
+              cloudSyncPending={cloudSyncPendingId === prov.id}
+              onCloudSync={() => void syncCredentialsToCloudAgent(prov.id)}
             />
           );
         })}
@@ -334,6 +412,13 @@ export function ProviderSettings() {
         onSaved={(providerId) => {
           setPendingId(providerId);
           loadStatuses();
+          if (
+            currentAgent &&
+            isCloudAgent(currentAgent) &&
+            canSyncProviderCredentialsToCloud(providerId)
+          ) {
+            void syncCredentialsToCloudAgent(providerId);
+          }
         }}
         onLoginStarted={(providerId) => {
           setPendingId(providerId);

@@ -13,26 +13,31 @@ import {
   PopoverTrigger,
 } from "@houston-ai/core";
 import { tauriConnections, tauriSystem } from "../../lib/tauri";
+import { queryKeys } from "../../lib/query-keys";
 import { useComposioRefetchOnReturn } from "../../hooks/use-composio-refetch-on-return";
 
 interface BrowseAppsSectionProps {
   connectedToolkits: Set<string>;
+  agentPath?: string;
 }
 
 const PAGE_SIZE = 100;
 
-export function BrowseAppsSection({ connectedToolkits }: BrowseAppsSectionProps) {
+export function BrowseAppsSection({
+  connectedToolkits,
+  agentPath,
+}: BrowseAppsSectionProps) {
   const { t } = useTranslation("integrations");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [connecting, setConnecting] = useState<string | null>(null);
-  const markWaitingForAuth = useComposioRefetchOnReturn();
+  const markWaitingForAuth = useComposioRefetchOnReturn(agentPath);
 
   const { data: apiApps } = useQuery({
-    queryKey: ["composio-apps"],
-    queryFn: () => tauriConnections.listApps(),
+    queryKey: queryKeys.composioApps(agentPath),
+    queryFn: () => tauriConnections.listApps(agentPath),
     staleTime: 1000 * 60 * 60,
   });
 
@@ -87,7 +92,7 @@ export function BrowseAppsSection({ connectedToolkits }: BrowseAppsSectionProps)
     async (toolkit: string) => {
       setConnecting(toolkit);
       try {
-        const { redirect_url } = await tauriConnections.connectApp(toolkit);
+        const { redirect_url } = await tauriConnections.connectApp(toolkit, agentPath);
         tauriSystem.openUrl(redirect_url);
         markWaitingForAuth(toolkit);
       } catch {
@@ -96,7 +101,7 @@ export function BrowseAppsSection({ connectedToolkits }: BrowseAppsSectionProps)
         setConnecting(null);
       }
     },
-    [markWaitingForAuth],
+    [agentPath, markWaitingForAuth],
   );
 
   return (

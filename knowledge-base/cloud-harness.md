@@ -17,9 +17,10 @@ Houston's agent loop is a **CLI subprocess harness** (`houston-terminal-manager`
 | Anthropic | `ANTHROPIC_API_KEY` injected at spawn | `claude -p` subprocess |
 | OpenAI | `OPENAI_API_KEY` when no OAuth | `codex exec` subprocess |
 | OpenRouter | `OPENROUTER_API_KEY` required | `codex exec` + process-local `-c` overrides |
-| Gemini | `GEMINI_API_KEY` optional | `gemini` subprocess |
 
 OpenRouter explicitly excludes a direct HTTP agent loop (`cloud/openrouter-provider-feature.json`).
+
+Cloud pods ship Claude Code, Codex, and Composio CLIs (`always-on/Dockerfile`). No Gemini CLI in the image. Connect providers via API key paste in the desktop app; credentials sync to the pod volume on agent create. Composio `user_data.json` syncs on cloud create when the user opts into credential sync (same toggle as provider keys).
 
 ## Cloud runtime contract
 
@@ -27,7 +28,7 @@ Each `cloud_24_7` agent gets:
 
 - Private `houston-engine` container + volume
 - Same REST/WS surface as local (`runtime-router.ts` → control-plane proxy)
-- CLIs inside the image (`always-on/Dockerfile`: Claude, Codex, Composio)
+- CLIs inside the image (`always-on/Dockerfile`: Claude Code, Codex only)
 - Provider credentials on the **container volume**, not copied from desktop
 
 Desktop must activate the same harness services against the proxied engine:
@@ -42,7 +43,8 @@ Implemented in `app/src/lib/activate-agent-runtime.ts`, called from `stores/agen
 
 | Gap | Mitigation |
 |-----|------------|
-| Gemini CLI missing in Linux engine image | API key only in cloud until CLI bundled for linux |
+| Gemini not in cloud image | Use Anthropic, OpenAI/Codex, or OpenRouter API keys on cloud |
+| Composio MCP in Codex spawn | Composio runs via CLI (`composio execute/search`) in agent Bash, not `--mcp-config` on `spawn_codex`. Legacy `~/.claude.json` MCP path is unused; sync `user_data.json` + ship CLI in image |
 | `cloud_provider_connections` table not implemented | Credentials live in engine volume via existing provider routes |
 | WS revoke mid-session | Checked at connect only |
 | Portable export | Local only; cloud uses live share wizard |

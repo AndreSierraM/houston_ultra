@@ -19,9 +19,13 @@ impl Db {
     }
 
     pub async fn migrate(&self) -> anyhow::Result<()> {
-        let sql = include_str!("../migrations/001_init.sql");
-        for stmt in sql.split(';').map(str::trim).filter(|s| !s.is_empty()) {
-            sqlx::query(stmt).execute(&self.pool).await?;
+        for sql in [
+            include_str!("../migrations/001_init.sql"),
+            include_str!("../migrations/002_worker_agents.sql"),
+        ] {
+            for stmt in sql.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                sqlx::query(stmt).execute(&self.pool).await?;
+            }
         }
         Ok(())
     }
@@ -31,8 +35,17 @@ impl Db {
     pub async fn ensure_org_entitlements(&self, org_id: Uuid) -> ApiResult<()> {
         sqlx::query(
             "INSERT INTO cloud_entitlements (org_id, status, max_cloud_agents, max_storage_gb, max_members)
-             VALUES ($1, 'active', 4, 10, 5)
+             VALUES ($1, 'active', 100000, 10, 5)
              ON CONFLICT (org_id) DO NOTHING",
+        )
+        .bind(org_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+        // Lift legacy dev defaults (4/8) even when migrate already ran before this org existed.
+        sqlx::query(
+            "UPDATE cloud_entitlements SET max_cloud_agents = 100000, updated_at = now()
+             WHERE org_id = $1 AND max_cloud_agents IN (4, 8)",
         )
         .bind(org_id)
         .execute(&self.pool)

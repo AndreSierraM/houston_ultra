@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 
+# Engine image: houston-engine + Claude Code + Codex.
 docker build -t houston/engine:dev -f always-on/Dockerfile .
 docker build -t houston/control-plane:dev -f cloud/control-plane/Dockerfile.k8s .
 

@@ -30,7 +30,7 @@
       "id": "p5",
       "name": "Provider login in cloud",
       "area": "app+cloud",
-      "exitGate": "Claude/Codex/Gemini auth happens against the cloud engine and persists in its volume."
+      "exitGate": "Claude/Codex/OpenRouter API keys and Composio user_data.json sync to the cloud engine volume on agent create."
     },
     {
       "id": "p6",
@@ -49,6 +49,12 @@
       "name": "K3s migration",
       "area": "cloud/runtime",
       "exitGate": "Runtime backend can provision the same cloud agent contract on K3s."
+    },
+    {
+      "id": "p9",
+      "name": "Cloud scaling",
+      "area": "cloud/runtime+ops",
+      "exitGate": "Orgs cannot exhaust the cluster; idle agents can stop; heavy jobs can burst worker agents."
     }
   ],
   "features": [
@@ -178,7 +184,28 @@
       "area": "app+cloud",
       "description": "Run provider status and login flows against the cloud agent engine.",
       "files": ["app/src/components/shell/provider-login-dialog.tsx"],
-      "acceptance": ["Codex device auth works in cloud", "Claude paste-back works in cloud", "Gemini API key persists in cloud volume"]
+      "acceptance": ["Anthropic API key syncs to cloud", "OpenAI/Codex API key syncs to cloud", "OpenRouter API key syncs to cloud", "Composio user_data.json syncs to cloud when locally connected"]
+    },
+    {
+      "id": "composio-cloud",
+      "phase": "p5",
+      "priority": 2,
+      "area": "app+cloud+runtime",
+      "description": "Ship Composio CLI in cloud engine image and sync user_data.json on agent create. Runtime uses composio execute/search via agent Bash, not MCP on spawn_codex.",
+      "files": [
+        "always-on/Dockerfile",
+        "always-on/docker-entrypoint.sh",
+        "app/src/lib/cloud-agent-create.ts",
+        "app/src/lib/cloud-create-plan.ts",
+        "cli-deps.json",
+        "knowledge-base/cloud-harness.md"
+      ],
+      "acceptance": [
+        "composio-linux-x64 tree in image at /opt/houston/composio-linux-x64",
+        "entrypoint seeds /data/.composio/composio without overwriting user_data.json",
+        "cloud create with sync opt-in exports composio credentials from local engine",
+        "agents on cloud can composio whoami after sync"
+      ]
     },
     {
       "id": "cloud-agent-share",
@@ -215,6 +242,56 @@
       "description": "Add K3s runtime backend behind the same cloud agent contract.",
       "files": ["cloud/control-plane/src/k8s_runtime.rs", "cloud/k8s/base"],
       "acceptance": ["namespace per org", "PVC per agent", "NetworkPolicy default deny", "ResourceQuota and LimitRange applied"]
+    },
+    {
+      "id": "org-resource-quota",
+      "phase": "p9",
+      "priority": 1,
+      "area": "cloud/runtime",
+      "description": "Apply ResourceQuota and LimitRange per org namespace from entitlements (max_cloud_agents, max_storage_gb).",
+      "files": ["cloud/control-plane/src/k8s_specs.rs", "cloud/control-plane/src/k8s_runtime.rs", "cloud/cloud-agents-ops.md"],
+      "acceptance": [
+        "ensure_namespace applies quota manifests idempotently",
+        "org cannot exceed entitled CPU/memory/PVC count",
+        "provision failure surfaces quota exceeded clearly"
+      ]
+    },
+    {
+      "id": "cloud-on-demand",
+      "phase": "p9",
+      "priority": 2,
+      "area": "cloud/runtime+backend",
+      "description": "Stop and wake cloud agents without deleting PVC (scale deployment to zero, wake on proxy or explicit start).",
+      "files": [
+        "cloud/control-plane/src/runtime.rs",
+        "cloud/control-plane/src/k8s_runtime.rs",
+        "cloud/control-plane/src/routes.rs",
+        "cloud/control-plane/src/agents.rs"
+      ],
+      "acceptance": [
+        "POST stop scales deployment to replicas 0 and sets runtime status stopped",
+        "first proxy or WS or POST start scales to 1 and waits for health",
+        "PVC and agent metadata survive stop",
+        "wire exposes cloud_on_demand runtime mode"
+      ]
+    },
+    {
+      "id": "cloud-worker-burst",
+      "phase": "p9",
+      "priority": 2,
+      "area": "cloud/runtime+backend",
+      "description": "Ephemeral worker agents for heavy parallel jobs: N distinct agent_ids, optional parent link, TTL teardown.",
+      "files": [
+        "cloud/control-plane/src/agents.rs",
+        "cloud/control-plane/migrations/",
+        "cloud/cloud-agents-ops.md"
+      ],
+      "acceptance": [
+        "create worker accepts parentAgentId and ttl",
+        "workers count toward max_cloud_agents and org quota",
+        "teardown removes pod; PVC policy is explicit",
+        "coordinator can create N workers in one org without manual UI per worker"
+      ]
     }
   ]
 }

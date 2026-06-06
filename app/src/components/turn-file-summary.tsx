@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { ChevronDownIcon, Lightbulb, Play, ScrollText } from "lucide-react";
 import { cn } from "@houston-ai/core";
-import { tauriFiles } from "../lib/tauri";
+import { openAgentFile } from "../lib/open-href";
 import type { JobDescriptionTarget } from "../stores/ui";
 import { useAgentStore } from "../stores/agents";
 import { useUIStore } from "../stores/ui";
@@ -17,18 +17,23 @@ import { getFileIcon } from "./file-card";
 interface TurnFileSummaryProps {
   items: TurnSummaryItem[];
   agentPath: string;
+  isCloud?: boolean;
 }
 
-export function TurnFileSummary({ items, agentPath }: TurnFileSummaryProps) {
+export function TurnFileSummary({ items, agentPath, isCloud }: TurnFileSummaryProps) {
   const { t } = useTranslation("chat");
   const [openUpdates, setOpenUpdates] = useState(false);
   const [openFiles, setOpenFiles] = useState(false);
 
   const handleOpen = useCallback(
     (path: string) => {
-      tauriFiles.open(agentPath, path).catch(console.error);
+      openAgentFile(
+        agentPath,
+        path,
+        isCloud !== undefined ? { isCloud } : undefined,
+      );
     },
-    [agentPath],
+    [agentPath, isCloud],
   );
 
   const handleOpenSemantic = useCallback(

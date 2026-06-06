@@ -38,6 +38,9 @@ import { CommandPalette } from "../command-palette";
 import { ShortcutCheatsheet } from "../shortcut-cheatsheet";
 import { useKeyboardShortcuts } from "../../hooks/use-keyboard-shortcuts";
 import { cn } from "@houston-ai/core";
+import { CloudOrchestrationDebugView } from "../debug/cloud-orchestration-debug-view";
+import { isCloudDebugPanelEnabled } from "../../lib/cloud-orchestration-debug";
+import { isCloudConfigured } from "../../lib/cloud-client";
 
 interface WorkspaceShellProps {
   toasts: Toast[];
@@ -53,6 +56,7 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
   const onStartMission = useUIStore((s) => s.onStartMission);
   const boardActions = useUIStore((s) => s.boardActions);
   const missionPanelOpen = useUIStore((s) => s.missionPanelOpen);
+  const setMissionPanelOpen = useUIStore((s) => s.setMissionPanelOpen);
   const setCreateAgentDialogOpen = useUIStore((s) => s.setCreateAgentDialogOpen);
   const agentMissionSearchQuery = useUIStore((s) =>
     currentAgent ? s.agentMissionSearchQueries[currentAgent.folderPath] ?? "" : "",
@@ -67,8 +71,12 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
   const agentDef = currentAgent ? getById(currentAgent.configId) : undefined;
   const { data: activities } = useActivity(currentAgent?.folderPath);
   const needsYouCount = (activities ?? []).filter((a) => a.status === "needs_you").length;
+  const cloudDebugEnabled = isCloudDebugPanelEnabled() && isCloudConfigured();
   const isAgentView =
-    viewMode !== "dashboard" && viewMode !== "connections" && viewMode !== "settings";
+    viewMode !== "dashboard" &&
+    viewMode !== "connections" &&
+    viewMode !== "settings" &&
+    viewMode !== "cloud-debug";
   const tabOr = (id: string) => (STANDARD_TAB_IDS.has(id) ? id : DEFAULT_TAB_ID);
 
   useEffect(() => {
@@ -76,6 +84,15 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
       setViewMode(DEFAULT_TAB_ID);
     }
   }, [isAgentView, setViewMode, viewMode]);
+
+  // Leaving the agent board while the mission panel is open races React portal
+  // teardown in WKWebView (removeChild NotFoundError). Close the panel first
+  // and keep the portal target mounted (hidden) so AIBoard can unmount cleanly.
+  useEffect(() => {
+    if (!isAgentView) {
+      setMissionPanelOpen(false);
+    }
+  }, [isAgentView, setMissionPanelOpen]);
 
   // Single tab_opened analytics point — watches viewMode regardless of which
   // path triggered the change (TabBar click, sidebar nav, keyboard shortcut,
@@ -114,6 +131,8 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
                 <IntegrationsView title={t("shell:sidebar.integrations")} />
               ) : viewMode === "settings" ? (
                 <SettingsView />
+              ) : viewMode === "cloud-debug" && cloudDebugEnabled ? (
+                <CloudOrchestrationDebugView />
               ) : currentAgent && agentDef && isAgentView ? (
                 <>
                   <div data-tour-target="tabs">
@@ -238,13 +257,19 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
                 </div>
               )}
             </main>
-            {missionPanelOpen && (
-              <div
-                ref={setPanelContainer}
-                className="h-full overflow-hidden border-l border-border"
-                style={{ width: "45%", minWidth: 380 }}
-              />
-            )}
+            <div
+              ref={setPanelContainer}
+              aria-hidden={!missionPanelOpen}
+              className={cn(
+                "h-full shrink-0 overflow-hidden border-l border-border",
+                !missionPanelOpen && "hidden",
+              )}
+              style={
+                missionPanelOpen
+                  ? { width: "45%", minWidth: 380 }
+                  : { width: 0, minWidth: 0, borderWidth: 0 }
+              }
+            />
           </div>
         </Sidebar>
         <CreateAgentDialog />

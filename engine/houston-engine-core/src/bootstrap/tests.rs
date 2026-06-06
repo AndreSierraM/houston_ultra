@@ -6,6 +6,7 @@ use crate::workspaces::{self, CreateWorkspace};
 use houston_engine_protocol::BuildBootstrapBundleRequest;
 use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 #[test]
@@ -63,6 +64,91 @@ fn template_mode_copies_store_skills_and_claude_md() {
 }
 
 #[test]
+fn template_mode_includes_routines_from_manifest() {
+    let installed = TempDir::new().unwrap();
+    fs::write(
+        installed.path().join("houston.json"),
+        r#"{"id":"demo","agentSeeds":{".houston/routines/routines.json":"[{\"id\":\"r1\",\"name\":\"Daily\",\"schedule\":\"0 9 * * *\"}]"}}"#,
+    )
+    .unwrap();
+
+    let bundle = build_bootstrap_bundle(BuildBootstrapBundleRequest {
+        config_id: "demo".into(),
+        name: "Ops".into(),
+        color: None,
+        claude_md: None,
+        installed_path: Some(installed.path().to_string_lossy().to_string()),
+        seeds: None,
+        provider: None,
+        model: None,
+        effort: None,
+        agent_path: None,
+    })
+    .unwrap();
+
+    assert!(bundle.seeds.contains_key(".houston/routines/routines.json"));
+    assert!(bundle.seeds[".houston/routines/routines.json"].contains("Daily"));
+}
+
+#[test]
+fn template_mode_merges_manifest_and_explicit_seeds() {
+    let installed = TempDir::new().unwrap();
+    fs::write(
+        installed.path().join("houston.json"),
+        r#"{"id":"demo","agentSeeds":{".houston/board.json":"{}",".houston/routines/routines.json":"[]"}}"#,
+    )
+    .unwrap();
+
+    let bundle = build_bootstrap_bundle(BuildBootstrapBundleRequest {
+        config_id: "demo".into(),
+        name: "Ops".into(),
+        color: None,
+        claude_md: None,
+        installed_path: Some(installed.path().to_string_lossy().to_string()),
+        seeds: Some(HashMap::from([
+            (".houston/board.json".into(), r#"{"columns":[]}"#.into()),
+            (".houston/activity.json".into(), "[]".into()),
+        ])),
+        provider: None,
+        model: None,
+        effort: None,
+        agent_path: None,
+    })
+    .unwrap();
+
+    assert_eq!(bundle.seeds[".houston/board.json"], r#"{"columns":[]}"#);
+    assert!(bundle.seeds.contains_key(".houston/routines/routines.json"));
+    assert!(!bundle.seeds.contains_key(".houston/activity.json"));
+}
+
+#[test]
+fn template_mode_drops_activity_seeds_from_manifest() {
+    let installed = TempDir::new().unwrap();
+    fs::write(
+        installed.path().join("houston.json"),
+        r#"{"id":"demo","agentSeeds":{".houston/activity/activity.json":"[]","README.md":"hello"}}"#,
+    )
+    .unwrap();
+
+    let bundle = build_bootstrap_bundle(BuildBootstrapBundleRequest {
+        config_id: "demo".into(),
+        name: "Blank".into(),
+        color: None,
+        claude_md: None,
+        installed_path: Some(installed.path().to_string_lossy().to_string()),
+        seeds: None,
+        provider: None,
+        model: None,
+        effort: None,
+        agent_path: None,
+    })
+    .unwrap();
+
+    assert!(!bundle.seeds.contains_key(".houston/activity/activity.json"));
+    assert_eq!(bundle.seeds["README.md"], "hello");
+}
+
+#[test]
 fn template_mode_drops_activity_seeds_from_request() {
     let bundle = build_bootstrap_bundle(BuildBootstrapBundleRequest {
         config_id: "blank".into(),
@@ -83,6 +169,43 @@ fn template_mode_drops_activity_seeds_from_request() {
 
     assert!(!bundle.seeds.contains_key(".houston/activity.json"));
     assert_eq!(bundle.seeds.get("AGENTS.md").map(String::as_str), Some("# agents"));
+}
+
+#[test]
+fn template_mode_resolves_bundled_store_without_installed_path() {
+    let store_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../store");
+    if !store_root.join("catalog.json").exists() {
+        return;
+    }
+    let bookkeeping = store_root.join("agents/bookkeeping");
+    if !bookkeeping.join("houston.json").exists() {
+        return;
+    }
+
+    std::env::set_var("HOUSTON_STORE_DIR", store_root.to_string_lossy().as_ref());
+
+    let bundle = build_bootstrap_bundle(BuildBootstrapBundleRequest {
+        config_id: "bookkeeping".into(),
+        name: "Bookkeeping burst".into(),
+        color: None,
+        claude_md: None,
+        installed_path: None,
+        seeds: None,
+        provider: None,
+        model: None,
+        effort: None,
+        agent_path: None,
+    })
+    .unwrap();
+
+    std::env::remove_var("HOUSTON_STORE_DIR");
+
+    assert!(!bundle.skills.is_empty(), "bookkeeping must ship skills");
+    assert!(
+        bundle.skills.iter().any(|s| s.slug == "log-an-expense"),
+        "expected log-an-expense skill"
+    );
+    assert_eq!(bundle.source.as_ref().unwrap().kind, "custom");
 }
 
 #[test]

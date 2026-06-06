@@ -164,8 +164,6 @@ export function statusPageUrl(provider: string): string | null {
       return "https://status.anthropic.com/";
     case "openai":
       return "https://status.openai.com/";
-    case "gemini":
-      return "https://status.cloud.google.com/";
     case "openrouter":
       return "https://status.openrouter.ai/";
     default:

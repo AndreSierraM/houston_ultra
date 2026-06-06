@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { tauriProvider, type ProviderStatus } from "../lib/tauri";
+import { checkLocalProviderStatus } from "../lib/local-provider-bridge";
+import type { ProviderStatus } from "../lib/tauri";
 import { PROVIDERS } from "../lib/providers";
 import { queryKeys } from "../lib/query-keys";
 
@@ -33,7 +34,7 @@ export function useProviderStatuses(): ProviderStatusesState {
     queryKey: queryKeys.providerStatuses(),
     queryFn: async (): Promise<Record<string, ProviderStatus>> => {
       const entries = await Promise.all(
-        PROVIDERS.map(async (p) => [p.id, await tauriProvider.checkStatus(p.id)] as const),
+        PROVIDERS.map(async (p) => [p.id, await checkLocalProviderStatus(p.id)] as const),
       );
       return Object.fromEntries(entries);
     },

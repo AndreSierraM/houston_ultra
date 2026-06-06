@@ -24,8 +24,6 @@
 mod anthropic;
 pub(crate) mod anthropic_classify;
 pub(crate) mod anthropic_credentials;
-mod gemini;
-pub(crate) mod gemini_credentials;
 mod openai;
 mod openai_classify;
 pub(crate) mod openai_credentials;
@@ -200,7 +198,6 @@ const REGISTRY: &[&dyn ProviderAdapter] = &[
     &anthropic::ANTHROPIC,
     &openai::OPENAI,
     &openrouter::OPENROUTER,
-    &gemini::GEMINI,
 ];
 
 /// Providers that spawn the Codex CLI runner (shared NDJSON parser).
@@ -460,7 +457,6 @@ mod tests {
         assert!(ids.contains(&"anthropic"));
         assert!(ids.contains(&"openai"));
         assert!(ids.contains(&"openrouter"));
-        assert!(ids.contains(&"gemini"));
     }
 
     #[test]
@@ -474,20 +470,12 @@ mod tests {
         assert!(uses_codex_runner("openrouter"));
         assert!(uses_codex_runner("openai"));
         assert!(!uses_codex_runner("anthropic"));
-        assert!(!uses_codex_runner("gemini"));
-    }
-
-    #[test]
-    fn parse_gemini_alias() {
-        assert_eq!(Provider::from_str("gemini").unwrap().id(), "gemini");
-        assert_eq!(Provider::from_str("google").unwrap().id(), "gemini");
     }
 
     #[test]
     fn effort_levels_are_provider_specific() {
         let anthropic = Provider::from_str("anthropic").unwrap();
         let openai = Provider::from_str("openai").unwrap();
-        let gemini = Provider::from_str("gemini").unwrap();
 
         // Claude `--effort` accepts the full range (Opus 4.7/4.8); Claude
         // self-clamps unsupported values per model.
@@ -501,11 +489,7 @@ mod tests {
             openai.effort_levels().to_vec(),
             vec!["low", "medium", "high", "xhigh"]
         );
-        // Gemini CLI takes no effort flag.
-        assert!(gemini.effort_levels().is_empty());
-
-        // Every provider default must be a member of its own level set, and
-        // providers without effort control must have no default.
+        // Every provider default must be a member of its own level set.
         for p in [anthropic, openai] {
             let d = p.default_effort().expect("effort provider has a default");
             assert!(
@@ -513,7 +497,6 @@ mod tests {
                 "{p} default {d} not in its effort_levels"
             );
         }
-        assert!(gemini.default_effort().is_none());
     }
 
     #[test]
@@ -521,18 +504,13 @@ mod tests {
         // Only codex needs a distinct headless flow — plain `codex login`
         // uses a localhost loopback redirect that can't reach a remote
         // engine. Claude's standard login already works headless (paste-back
-        // code) and Gemini drives its own browser identity, so neither
-        // exposes a device variant.
+        // code), so it exposes no device variant.
         let openai = Provider::from_str("openai").unwrap();
         assert_eq!(
             openai.device_login_args().map(|a| a.to_vec()),
             Some(vec!["login", "--device-auth", "-c", "model_reasoning_effort=high"])
         );
         assert!(Provider::from_str("anthropic")
-            .unwrap()
-            .device_login_args()
-            .is_none());
-        assert!(Provider::from_str("gemini")
             .unwrap()
             .device_login_args()
             .is_none());

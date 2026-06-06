@@ -32,7 +32,10 @@ pub fn seeds_from_manifest(manifest: &serde_json::Value) -> HashMap<String, Stri
     filter_seeds(out)
 }
 
-/// Routines and learnings for local-to-cloud migration (portable parity).
+/// On-disk routines and learnings for **local → cloud migration** only.
+///
+/// Store → cloud MVP uses `agentSeeds` from the template `houston.json`, not
+/// this helper. Callers pass `agentPath` (not `installedPath`) to activate it.
 pub fn gather_migration_seeds(agent_root: &Path) -> CoreResult<HashMap<String, String>> {
     let mut out = HashMap::new();
     for rel in [

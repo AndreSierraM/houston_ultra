@@ -5,7 +5,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@houston-ai/core";
-import { type ProviderInfo } from "../lib/providers";
+import { type ProviderInfo, modelSupportsAgenticTools } from "../lib/providers";
 import { type ProviderPickerState } from "../lib/model-picker";
 import { ClaudeLogo, OpenAILogo, OpenRouterLogo } from "./shell/provider-logos";
 
@@ -49,6 +49,7 @@ export function ProviderModelGroup({
       </DropdownMenuLabel>
       {provider.models.map((m) => {
         const isActive = isActiveProvider && m.id === activeModel;
+        const chatOnly = !modelSupportsAgenticTools(provider.id, m.id);
         return (
           <DropdownMenuItem
             key={m.id}
@@ -64,8 +65,13 @@ export function ProviderModelGroup({
               {isActive && <Check className="h-3.5 w-3.5 text-foreground" />}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-sm truncate" title={`${m.label} (${m.id})`}>
-                {m.label}
+              <div className="text-sm truncate flex items-center gap-1.5" title={`${m.label} (${m.id})`}>
+                <span className="truncate">{m.label}</span>
+                {chatOnly && (
+                  <span className="shrink-0 rounded px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground bg-muted">
+                    {t("modelSelector.chatOnly")}
+                  </span>
+                )}
               </div>
               <div
                 className="text-xs text-muted-foreground leading-snug truncate"

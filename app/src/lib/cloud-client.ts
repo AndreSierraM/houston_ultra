@@ -2,7 +2,10 @@
  * Houston Cloud control plane client.
  * Auth: `VITE_HOUSTON_CLOUD_TOKEN` (local dev) or Supabase session bearer.
  */
-import type { AgentBootstrapBundle } from "@houston-ai/engine-client";
+import type {
+  AgentBootstrapBundle,
+  CredentialImportRequest,
+} from "@houston-ai/engine-client";
 import type { Agent } from "./types";
 
 export type AgentRuntimeMode = "local" | "cloud_24_7";
@@ -15,6 +18,12 @@ export interface CloudEntitlement {
   maxMembers: number;
 }
 
+/** Forwarded to control plane `run_credential_sync` during agent create. */
+export interface CredentialSyncPayload {
+  provider: string;
+  importBody: CredentialImportRequest;
+}
+
 export interface CreateCloudAgentInput {
   name: string;
   configId: string;
@@ -23,7 +32,7 @@ export interface CreateCloudAgentInput {
   provider?: string;
   model?: string;
   bootstrapBundle?: AgentBootstrapBundle;
-  syncProviderCredentials?: boolean;
+  credentialSync?: CredentialSyncPayload;
 }
 
 export interface PatchCloudAgentInput {
@@ -113,11 +122,18 @@ export async function cloudBearerToken(): Promise<string> {
   return token;
 }
 
+interface CloudFetchOptions {
+  label?: string;
+  /** When true, errors throw without surfacing a toast (dev debug polling). */
+  silent?: boolean;
+}
+
 async function cloudFetch<T>(
   path: string,
   init?: RequestInit,
-  label = "cloud",
+  options: CloudFetchOptions | string = "cloud",
 ): Promise<T> {
+  const opts = typeof options === "string" ? { label: options } : options;
   const token = await cloudBearerToken();
   const res = await fetch(`${cloudBaseUrl()}${path}`, {
     ...init,
@@ -133,8 +149,10 @@ async function cloudFetch<T>(
       (body as { error?: { message?: string } } | null)?.error?.message ??
       `Cloud request failed (${res.status})`;
     const err = new Error(message);
-    const { showErrorToast } = await import("./error-toast");
-    showErrorToast(label, message, err);
+    if (!opts.silent) {
+      const { showErrorToast } = await import("./error-toast");
+      showErrorToast(opts.label ?? "cloud", message, err);
+    }
     throw err;
   }
   return body as T;
@@ -189,10 +207,9 @@ export async function listCloudAgents(): Promise<Agent[]> {
 export async function createCloudAgent(
   input: CreateCloudAgentInput,
 ): Promise<Agent> {
-  const { syncProviderCredentials: _sync, ...payload } = input;
   const agent = await cloudFetch<Agent & Record<string, unknown>>("/v1/cloud/agents", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(input),
   });
   return normalizeCloudAgent(agent);
 }
@@ -211,6 +228,78 @@ export async function patchCloudAgent(
 
 export async function deleteCloudAgent(id: string): Promise<void> {
   await cloudFetch(`/v1/cloud/agents/${id}`, { method: "DELETE" }, "delete cloud agent");
+}
+
+export type CloudAgentProvisionStatus = "running" | "provisioning" | string;
+
+export async function fetchCloudAgentStatus(
+  agentId: string,
+  options?: { silent?: boolean },
+): Promise<{ status: CloudAgentProvisionStatus }> {
+  return cloudFetch(`/v1/cloud/agents/${agentId}/status`, undefined, {
+    label: "cloud agent status",
+    silent: options?.silent,
+  });
+}
+
+export function isEngineHealthOk(body: unknown): boolean {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    "status" in body &&
+    (body as { status: unknown }).status === "ok"
+  );
+}
+
+export async function pingCloudAgentEngine(
+  agentId: string,
+): Promise<{ ok: boolean; latencyMs?: number }> {
+  const start = performance.now();
+  try {
+    const token = await cloudBearerToken();
+    const res = await fetch(`${cloudEngineBaseUrl(agentId)}/v1/health`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const latencyMs = Math.round(performance.now() - start);
+    if (!res.ok) return { ok: false, latencyMs };
+    const body: unknown = await res.json().catch(() => null);
+    return isEngineHealthOk(body) ? { ok: true, latencyMs } : { ok: false, latencyMs };
+  } catch {
+    return { ok: false, latencyMs: Math.round(performance.now() - start) };
+  }
+}
+
+export async function startCloudAgent(agentId: string): Promise<{ status: string }> {
+  return cloudFetch(`/v1/cloud/agents/${agentId}/start`, { method: "POST" }, "start cloud agent");
+}
+
+const CLOUD_ENGINE_READY_POLL_MS = 250;
+const CLOUD_ENGINE_READY_TIMEOUT_MS = 180_000;
+
+/** Poll proxied engine /v1/health until the pod accepts traffic. */
+export async function waitForCloudEngineReady(
+  agentId: string,
+  timeoutMs = CLOUD_ENGINE_READY_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const ping = await pingCloudAgentEngine(agentId);
+    if (ping.ok) return;
+    await new Promise((r) => setTimeout(r, CLOUD_ENGINE_READY_POLL_MS));
+  }
+  throw new Error(
+    `Cloud engine for agent ${agentId} did not become healthy within ${timeoutMs}ms`,
+  );
+}
+
+/** Wake stopped/provisioning cloud pods before routing harness traffic. */
+export async function ensureCloudAgentAwake(agent: Agent): Promise<void> {
+  const { status } = await fetchCloudAgentStatus(agent.id, { silent: true });
+  if (status === "running") return;
+  if (status === "stopped" || status === "provisioning") {
+    await startCloudAgent(agent.id);
+  }
+  await waitForCloudEngineReady(agent.id);
 }
 
 export function cloudEngineBaseUrl(agentId: string): string {

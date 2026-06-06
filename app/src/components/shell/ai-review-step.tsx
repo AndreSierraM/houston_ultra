@@ -29,6 +29,8 @@ interface AiReviewStepProps {
   onRuntimeModeChange: (mode: AgentRuntimeMode) => void;
   syncProviderCredentials: boolean;
   onSyncProviderCredentialsChange: (value: boolean) => void;
+  syncComposioCredentials: boolean;
+  onSyncComposioCredentialsChange: (value: boolean) => void;
 }
 
 export function AiReviewStep({
@@ -46,6 +48,8 @@ export function AiReviewStep({
   onRuntimeModeChange,
   syncProviderCredentials,
   onSyncProviderCredentialsChange,
+  syncComposioCredentials,
+  onSyncComposioCredentialsChange,
 }: AiReviewStepProps) {
   const { t } = useTranslation("shell");
   const resolvedColor = resolveAgentColor(color);
@@ -101,6 +105,8 @@ export function AiReviewStep({
             onChange={onRuntimeModeChange}
             syncConnection={syncProviderCredentials}
             onSyncConnectionChange={onSyncProviderCredentialsChange}
+            syncComposioConnection={syncComposioCredentials}
+            onSyncComposioConnectionChange={onSyncComposioCredentialsChange}
           />
 
           {/* Instructions */}
@@ -134,8 +140,8 @@ export function AiReviewStep({
         onBack={onBack}
         primaryLabel={t("naming.createAgent")}
         onPrimary={onSubmit}
-        primaryDisabled={!name.trim()}
-        primaryLoading={creating}
+        primaryDisabled={!name.trim() || creating}
+        primaryLoading={false}
       />
     </div>
   );

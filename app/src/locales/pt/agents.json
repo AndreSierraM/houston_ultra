@@ -106,6 +106,10 @@
       "rename": "Renomear",
       "reveal": "Mostrar no Explorador de Arquivos",
       "delete": "Mover para o Lixo"
-    }
+    },
+    "provisioningTitle": "Preparando armazenamento de arquivos",
+    "provisioningDescription": "Seu agente na nuvem ainda está iniciando. Os arquivos aparecerão aqui quando estiver pronto.",
+    "cloudOpenUnavailable": "Abrir arquivos ainda não está disponível para agentes na nuvem.",
+    "loadError": "Não foi possível carregar os arquivos"
   }
 }

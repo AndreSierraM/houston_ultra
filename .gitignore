@@ -27,3 +27,6 @@ app/src-tauri/resources/bin/
 
 # Houston engine sidecar staged by build.rs (built from source in CI, not committed)
 app/src-tauri/binaries/
+
+# Cloud engine image product prompt (scripts/export-cloud-product-prompt.sh)
+always-on/houston-product-prompt.txt

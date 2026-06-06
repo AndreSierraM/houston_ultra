@@ -31,12 +31,15 @@ import type {
 } from "@houston-ai/engine-client";
 import { getEngine } from "./engine";
 import { agentFromPath, currentAgent } from "./agent-lookup";
-import { resolveEngine, resolveEngineForPath } from "./engine-for-agent";
-import { isCloudAgent } from "./runtime-router";
+import { agentForEngine, resolveEngine, resolveEngineForPath } from "./engine-for-agent";
+import { resolveEngineAgentPath } from "./engine-agent-path";
+import { ensureAgentEngineWs, isCloudAgent } from "./runtime-router";
 import { osPickDirectory } from "./os-bridge";
 import { logger } from "./logger";
 import { normalizeLegacyModel } from "./providers";
 import { shouldAutocompactForSession } from "./autocompact";
+import { assertAgenticModelPreflight } from "./agentic-model-preflight";
+import { assertCloudProviderAuthPreflight } from "./cloud-send-preflight";
 export { withAttachmentPaths } from "./attachment-message";
 
 interface EngineCallOptions {
@@ -210,6 +213,8 @@ export const tauriChat = {
       providerOverride?: string;
       modelOverride?: string;
       effortOverride?: string;
+      /** Cloud burst / create flows: route without store lookup. */
+      agent?: Agent;
     },
   ) =>
     call<string>("send_message", async () => {
@@ -223,7 +228,18 @@ export const tauriChat = {
         opts?.providerOverride,
         opts?.modelOverride,
       );
-      const engine = await resolveEngineForPath(agentPath);
+      const agent = opts?.agent ?? agentForEngine(agentPath);
+      await assertCloudProviderAuthPreflight(agentPath, opts?.providerOverride, agent);
+      await assertAgenticModelPreflight(
+        agentPath,
+        opts?.providerOverride,
+        opts?.modelOverride,
+        agent,
+      );
+      const engine = await resolveEngine(agent, agentPath);
+      if (agent && isCloudAgent(agent)) {
+        await ensureAgentEngineWs(agent);
+      }
       const res = await engine.startSession(agentPath, {
         sessionKey,
         prompt,
@@ -435,51 +451,66 @@ export interface ReconnectResult {
   redirectUrl: string | null;
 }
 
+/** Composio lives on the agent's engine — cloud pod for cloud agents, local sidecar otherwise. */
+async function composioEngine(agentPath?: string) {
+  if (agentPath) {
+    const agent = agentForEngine(agentPath);
+    if (agent && isCloudAgent(agent)) {
+      return resolveEngineForPath(agentPath);
+    }
+  }
+  return getEngine();
+}
+
 export const tauriConnections = {
-  list: () =>
-    call<ComposioStatus>("list_composio_connections", () => getEngine().composioStatus()),
-  listApps: () =>
+  list: (agentPath?: string) =>
+    call<ComposioStatus>("list_composio_connections", async () =>
+      (await composioEngine(agentPath)).composioStatus(),
+    ),
+  listApps: (agentPath?: string) =>
     call<ComposioAppEntry[]>("list_composio_apps", async () =>
-      (await getEngine().composioListApps()).map((a: EngineComposioAppEntry) => ({
-        toolkit: a.toolkit,
-        name: a.name,
-        description: a.description,
-        logo_url: a.logo_url,
-        categories: a.categories,
-      })),
+      (await (await composioEngine(agentPath)).composioListApps()).map(
+        (a: EngineComposioAppEntry) => ({
+          toolkit: a.toolkit,
+          name: a.name,
+          description: a.description,
+          logo_url: a.logo_url,
+          categories: a.categories,
+        }),
+      ),
     ),
-  listConnectedToolkits: () =>
-    call<string[]>("list_composio_connected_toolkits", () =>
-      getEngine().composioListConnections(),
+  listConnectedToolkits: (agentPath?: string) =>
+    call<string[]>("list_composio_connected_toolkits", async () =>
+      (await composioEngine(agentPath)).composioListConnections(),
     ),
-  connectApp: (toolkit: string) =>
+  connectApp: (toolkit: string, agentPath?: string) =>
     call<StartLinkResponse>("connect_composio_app", async () => {
-      const r = await getEngine().composioConnectApp(toolkit);
+      const r = await (await composioEngine(agentPath)).composioConnectApp(toolkit);
       return {
         redirect_url: r.redirect_url,
         connected_account_id: r.connected_account_id,
         toolkit: r.toolkit,
       };
     }),
-  disconnectApp: (toolkit: string) =>
+  disconnectApp: (toolkit: string, agentPath?: string) =>
     call<void>(
       "disconnect_composio_app",
-      () => getEngine().composioDisconnect(toolkit),
+      async () => (await composioEngine(agentPath)).composioDisconnect(toolkit),
       { toolkit },
     ),
-  reconnectApp: (toolkit: string) =>
+  reconnectApp: (toolkit: string, agentPath?: string) =>
     call<ReconnectResult>(
       "reconnect_composio_app",
       async () => {
-        const r = await getEngine().composioReconnect(toolkit);
+        const r = await (await composioEngine(agentPath)).composioReconnect(toolkit);
         return { redirectUrl: r.redirectUrl };
       },
       { toolkit },
     ),
-  watchConnection: (toolkit: string) =>
+  watchConnection: (toolkit: string, agentPath?: string) =>
     call<void>(
       "watch_composio_connection",
-      () => getEngine().composioWatchConnection(toolkit),
+      async () => (await composioEngine(agentPath)).composioWatchConnection(toolkit),
       { toolkit },
       // Fire-and-forget — caller awaits only to know the request was
       // accepted; the result is delivered as a `ComposioConnectionAdded`
@@ -487,54 +518,84 @@ export const tauriConnections = {
       // back to the client-side watcher.
       { toast: false, capture: false },
     ),
-  startOAuth: () =>
+  startOAuth: (agentPath?: string) =>
     call<StartLoginResponse>("start_composio_oauth", async () => {
-      const r = await getEngine().composioStartLogin();
+      const r = await (await composioEngine(agentPath)).composioStartLogin();
       return { login_url: r.login_url, cli_key: r.cli_key };
     }),
-  completeLogin: (cliKey: string) =>
-    call<void>("complete_composio_login", () => getEngine().composioCompleteLogin(cliKey)),
-  logout: () => call<void>("logout_composio", () => getEngine().composioLogout()),
-  isCliInstalled: () =>
-    call<boolean>("is_composio_cli_installed", () => getEngine().composioCliInstalled()),
-  installCli: () => call<void>("install_composio_cli", () => getEngine().composioInstallCli()),
+  completeLogin: (cliKey: string, agentPath?: string) =>
+    call<void>("complete_composio_login", async () =>
+      (await composioEngine(agentPath)).composioCompleteLogin(cliKey),
+    ),
+  logout: (agentPath?: string) =>
+    call<void>("logout_composio", async () => (await composioEngine(agentPath)).composioLogout()),
+  isCliInstalled: (agentPath?: string) =>
+    call<boolean>("is_composio_cli_installed", async () =>
+      (await composioEngine(agentPath)).composioCliInstalled(),
+    ),
+  installCli: (agentPath?: string) =>
+    call<void>("install_composio_cli", async () =>
+      (await composioEngine(agentPath)).composioInstallCli(),
+    ),
 };
 
 // ─── Project files (browser) ──────────────────────────────────────────
 
 import { osOpenFile, osRevealAgent, osRevealFile } from "./os-bridge";
 
+async function filesEngine(agentPath: string, agent?: Agent) {
+  const resolvedAgent = agent ?? agentForEngine(agentPath);
+  const engine = await resolveEngine(resolvedAgent, agentPath);
+  const path = agent ? resolveEngineAgentPath(agent) : agentPath;
+  return { engine, path };
+}
+
 export const tauriFiles = {
-  list: (agentPath: string) =>
-    call<FileEntry[]>("list_project_files", async () => {
-      const engine = await resolveEngineForPath(agentPath);
-      return (await engine.listProjectFiles(agentPath)).map((f) => ({
-        path: f.path,
-        name: f.name,
-        extension: f.extension,
-        size: f.size,
-        is_directory: f.is_directory,
-        dateModified: f.date_modified,
-      }));
-    }),
+  list: (agentPath: string, agent?: Agent) =>
+    call<FileEntry[]>(
+      "list_project_files",
+      async () => {
+        const { engine, path } = await filesEngine(agentPath, agent);
+        return (await engine.listProjectFiles(path)).map((f) => ({
+          path: f.path,
+          name: f.name,
+          extension: f.extension,
+          size: f.size,
+          is_directory: f.is_directory,
+          dateModified: f.date_modified,
+        }));
+      },
+      undefined,
+      { toast: false },
+    ),
   open: (agentPath: string, relativePath: string) =>
     osOpenFile(agentPath, relativePath),
   reveal: (agentPath: string, relativePath: string) =>
     osRevealFile(agentPath, relativePath),
-  delete: (agentPath: string, relativePath: string) =>
+  delete: (agentPath: string, relativePath: string, agent?: Agent) =>
     call<void>("delete_file", async () => {
-      const engine = await resolveEngineForPath(agentPath);
-      await engine.deleteFile(agentPath, relativePath);
+      const { engine, path } = await filesEngine(agentPath, agent);
+      await engine.deleteFile(path, relativePath);
     }),
-  rename: (agentPath: string, relativePath: string, newName: string) =>
+  rename: (agentPath: string, relativePath: string, newName: string, agent?: Agent) =>
     call<void>("rename_file", async () => {
-      const engine = await resolveEngineForPath(agentPath);
-      await engine.renameFile(agentPath, relativePath, newName);
+      const { engine, path } = await filesEngine(agentPath, agent);
+      await engine.renameFile(path, relativePath, newName);
     }),
-  createFolder: (agentPath: string, name: string) =>
+  createFolder: (agentPath: string, name: string, agent?: Agent) =>
     call<void>("create_agent_folder", async () => {
-      const engine = await resolveEngineForPath(agentPath);
-      await engine.createFolder(agentPath, name);
+      const { engine, path } = await filesEngine(agentPath, agent);
+      await engine.createFolder(path, name);
+    }),
+  importBytes: (
+    agentPath: string,
+    fileName: string,
+    dataBase64: string,
+    agent?: Agent,
+  ) =>
+    call<void>("import_file_bytes", async () => {
+      const { engine, path } = await filesEngine(agentPath, agent);
+      await engine.importFileBytes(path, fileName, dataBase64);
     }),
   revealAgent: (agentPath: string) => osRevealAgent(agentPath),
 };
@@ -593,27 +654,46 @@ export const tauriConversations = {
       return (await engine.listConversations(agentPath)).map(conversationToRaw);
     }),
   listAll: (agentPaths: string[]) =>
-    call<RawConversation[]>("list_all_conversations", async () => {
-      const groups = new Map<
-        Awaited<ReturnType<typeof resolveEngine>>,
-        string[]
-      >();
-      for (const agentPath of agentPaths) {
-        const engine = await resolveEngineForPath(agentPath);
-        const paths = groups.get(engine);
-        if (paths) {
-          paths.push(agentPath);
-        } else {
-          groups.set(engine, [agentPath]);
+    call<RawConversation[]>(
+      "list_all_conversations",
+      async () => {
+        const groups = new Map<
+          Awaited<ReturnType<typeof resolveEngine>>,
+          string[]
+        >();
+        for (const agentPath of agentPaths) {
+          const engine = await resolveEngineForPath(agentPath);
+          const paths = groups.get(engine);
+          if (paths) {
+            paths.push(agentPath);
+          } else {
+            groups.set(engine, [agentPath]);
+          }
         }
-      }
-      const batches = await Promise.all(
-        [...groups.entries()].map(async ([engine, paths]) =>
-          (await engine.listAllConversations(paths)).map(conversationToRaw),
-        ),
-      );
-      return batches.flat();
-    }),
+        const settled = await Promise.allSettled(
+          [...groups.entries()].map(async ([engine, paths]) =>
+            (await engine.listAllConversations(paths)).map(conversationToRaw),
+          ),
+        );
+        const conversations: RawConversation[] = [];
+        for (const result of settled) {
+          if (result.status === "fulfilled") {
+            conversations.push(...result.value);
+            continue;
+          }
+          logger.warn(
+            `[engine:list_all_conversations] batch failed: ${
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason)
+            }`,
+          );
+        }
+        return conversations;
+      },
+      undefined,
+      { toast: false, capture: true },
+    ),
 };
 
 function conversationToRaw(
@@ -929,19 +1009,6 @@ export const tauriProvider = {
     call<void>("cancel_provider_login", async () => {
       const engine = await resolveEngine(currentAgent());
       await engine.cancelProviderLogin(provider);
-    }),
-  /**
-   * Save a Gemini API key to `~/.gemini/.env` via the engine. Errors
-   * surface through `call`'s standard rejection path; the caller is
-   * expected to render them with `errorMessage(err)` + `addToast`.
-   *
-   * Gemini-only by design (other providers use OAuth via launchLogin).
-   * Never log `apiKey` — it's a SECRET.
-   */
-  setGeminiApiKey: (apiKey: string) =>
-    call<void>("set_gemini_api_key", async () => {
-      const engine = await resolveEngine(currentAgent());
-      await engine.setGeminiApiKey(apiKey);
     }),
   setOpenRouterApiKey: (apiKey: string) =>
     call<void>("set_openrouter_api_key", async () => {

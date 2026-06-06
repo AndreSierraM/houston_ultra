@@ -2,7 +2,6 @@ import type { ProviderInfo } from "../../lib/providers";
 import { isApiKeyOnlyProvider, isDualPathConnectProvider } from "../../lib/provider-api-key";
 import { ApiKeyConnectDialog } from "./api-key-connect-dialog";
 import { CliConnectDialog } from "./cli-connect-dialog";
-import { GeminiConnectDialog } from "./gemini-connect-dialog";
 
 interface Props {
   provider: ProviderInfo | null;
@@ -11,7 +10,7 @@ interface Props {
   onLoginStarted: (providerId: string) => void;
 }
 
-/** Routes connect UI: dual-path CLI+key (Anthropic/OpenAI/Gemini) or API-key-only. */
+/** Routes connect UI: dual-path CLI+key (Anthropic/OpenAI) or API-key-only. */
 export function ProviderConnectDialog({
   provider,
   onOpenChange,
@@ -19,17 +18,6 @@ export function ProviderConnectDialog({
   onLoginStarted,
 }: Props) {
   if (!provider) return null;
-
-  if (provider.id === "gemini") {
-    return (
-      <GeminiConnectDialog
-        provider={provider}
-        onOpenChange={onOpenChange}
-        onSaved={onSaved}
-        onLoginStarted={onLoginStarted}
-      />
-    );
-  }
 
   if (isDualPathConnectProvider(provider)) {
     return (

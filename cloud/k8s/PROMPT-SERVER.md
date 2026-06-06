@@ -1,11 +1,11 @@
 # Prompt para IA en el VPS (K3s / Kubernetes)
 
-**Repo público.** Nunca commitear ni pegar en issues/PRs: `DATABASE_URL`, `SUPABASE_DB_PASSWORD`, `HOUSTON_CLOUD_TOKEN`. Esos valores viven solo en el VPS y en `app/.env.local` (gitignored).
+**Repo público.** Nunca commitear ni pegar en issues/PRs: `DATABASE_URL`, `SUPABASE_DB_PASSWORD`, `HOUSTON_CLOUD_TOKEN`.
 
-Plantilla segura en repo: `cloud/control-plane/deploy/profiles/cloudhouston.blyxlabs.dev.env.example`  
-Archivo real (local): `profiles/cloudhouston.blyxlabs.dev.env` (gitignored).
+Plantilla: `cloud/control-plane/deploy/profiles/cloudhouston.blyxlabs.dev.env.example`  
+Real (gitignored): `profiles/cloudhouston.blyxlabs.dev.env`
 
-Copia el bloque siguiente en tu agente de IA en el servidor. El agente debe ejecutar los pasos en orden y reportar fallos con logs.
+**Imagen del pod:** solo `claude` + `codex` (sin Gemini CLI, sin Composio).
 
 ---
 
@@ -14,121 +14,93 @@ Copia el bloque siguiente en tu agente de IA en el servidor. El agente debe ejec
 ```
 Eres el operador de despliegue de Houston Cloud en este VPS.
 
-Objetivo: dejar funcionando el control plane en Kubernetes con runtime k8s, conectado a Supabase Postgres externo, accesible en https://cloudhouston.blyxlabs.dev
+Objetivo: control plane en K8s, Postgres Supabase externo, agentes cloud con Claude Code + Codex en cada pod.
 
 Repositorio: https://github.com/AndreSierraM/houston_ultra
-Rama: main (o la que indique el operador)
+Rama: main
 
-Requisitos previos en el servidor:
-- kubectl funciona contra el cluster (K3s u otro)
-- docker disponible para build de imágenes locales
-- DNS cloudhouston.blyxlabs.dev apunta a este servidor
-- Ingress controller activo (Traefik en K3s por defecto)
+Requisitos: kubectl, docker, DNS cloudhouston.blyxlabs.dev → este servidor, Ingress (Traefik en K3s).
 
-NO uses Docker Compose para el control plane.
-NO despliegues Postgres en el cluster.
-NO crees pods de agentes a mano; el control plane los crea al provisionar desde la app desktop.
+NO Docker Compose para control plane. NO Postgres en cluster. NO pods de agentes a mano.
 
-### Paso 1 — Clonar o actualizar repo
+### Credenciales (el operador las pega por canal privado)
+
+**Servidor** — editar `cloud/control-plane/deploy/profiles/cloudhouston.blyxlabs.dev.env`:
+- `DATABASE_URL` — pooler Supabase :5432 sslmode=require
+- `SUPABASE_DB_PASSWORD`
+- `HOUSTON_CLOUD_TOKEN` — generar: echo "hst_$(openssl rand -hex 32)"
+- `HOUSTON_CLOUD_DOMAIN`, `HOUSTON_ENGINE_IMAGE`, etc. (ver .env.example)
+
+**App desktop del operador** — `app/.env.local`:
+- `VITE_HOUSTON_CLOUD_BASE=https://cloudhouston.blyxlabs.dev`
+- `VITE_HOUSTON_CLOUD_TOKEN=<mismo HOUSTON_CLOUD_TOKEN>`
+
+**Providers** — en la app Houston (no en el VPS):
+- Settings → pegar API keys (Anthropic, OpenAI/Codex, OpenRouter)
+- Crear agente Nube 24/7 con sync de credenciales activado
+
+### Paso 1 — Clonar
 
 cd ~
 git clone https://github.com/AndreSierraM/houston_ultra.git || true
-cd houston_ultra
-git pull
+cd houston_ultra && git pull
 
-### Paso 2 — Configurar secret del control plane
-
-El operador DEBE entregarte credenciales por canal privado (no en git).
-
-En el servidor, crear el env local (no commitear):
+### Paso 2 — Secret K8s
 
 cp cloud/control-plane/deploy/profiles/cloudhouston.blyxlabs.dev.env.example \
    cloud/control-plane/deploy/profiles/cloudhouston.blyxlabs.dev.env
-# Editar .env con valores reales que el operador pegue en el chat privado del VPS
-
-Generar token si hace falta: echo "hst_$(openssl rand -hex 32)"
-
-Aplicar secret (excluye variables VITE_*):
+# Pegar valores reales en .env (canal privado)
 
 chmod +x cloud/k8s/scripts/create-control-plane-secret.sh
 ./cloud/k8s/scripts/create-control-plane-secret.sh cloud/control-plane/deploy/profiles/cloudhouston.blyxlabs.dev.env
 
-### Paso 3 — Build e import de imágenes
+### Paso 3 — Build imágenes
 
 chmod +x cloud/k8s/scripts/build-images.sh
 ./cloud/k8s/scripts/build-images.sh
+# houston/engine:dev (claude + codex) + houston/control-plane:dev
 
-Esto construye:
-- houston/engine:dev (runtime de cada agente cloud)
-- houston/control-plane:dev (API + kubectl embebido)
-
-En K3s las imágenes se importan con ctr. Si el cluster usa registry remoto, push e actualiza HOUSTON_ENGINE_IMAGE en el secret.
-
-### Paso 4 — Aplicar manifests Kubernetes
+### Paso 4 — Deploy
 
 kubectl apply -k cloud/k8s/overlays/blyxlabs
-
-Verificar:
-kubectl -n houston-system get pods,svc,ingress
 kubectl -n houston-system rollout status deployment/houston-control-plane --timeout=180s
 
-### Paso 5 — Smoke tests
+### Paso 5 — Smoke
 
-curl -sf https://cloudhouston.blyxlabs.dev/health
-# debe responder: ok
-
-# El operador exporta el token en la sesión (no imprimirlo en logs públicos)
+curl -sf https://cloudhouston.blyxlabs.dev/health   # ok
 curl -sf -H "Authorization: Bearer $HOUSTON_CLOUD_TOKEN" https://cloudhouston.blyxlabs.dev/v1/cloud/me
 
-### Paso 6 — Conectar app desktop (Mac del operador)
+### Paso 6 — App desktop
 
-En app/.env.local del Mac (no en el servidor):
-
-VITE_HOUSTON_CLOUD_BASE=https://cloudhouston.blyxlabs.dev
-VITE_HOUSTON_CLOUD_TOKEN=<mismo HOUSTON_CLOUD_TOKEN del perfil>
-
-Reiniciar app: pnpm tauri dev
-
-En la app: crear agente "Nube 24/7". El control plane debe:
-1. Crear namespace hou-org-{org_id}
-2. Crear Deployment + PVC + Service del engine
-3. Bootstrap workspace Cloud en el engine
-
-Verificar agente:
+Reiniciar app con app/.env.local actualizado. Crear agente Nube 24/7.
 kubectl get deployments -A | grep hou-cloud-agent
 
 ### Troubleshooting
 
-- Pod ImagePullBackOff: re-ejecutar build-images.sh o configurar imagePullPolicy IfNotPresent
-- /health 404: ingress o DNS incorrecto; revisar kubectl -n houston-system describe ingress
-- DB error: DATABASE_URL debe usar pooler Supabase puerto 5432 con sslmode=require
-- Provision falla: kubectl logs -n houston-system deployment/houston-control-plane
+- ImagePullBackOff → build-images.sh o imagePullPolicy IfNotPresent
+- DB error → DATABASE_URL pooler 5432 sslmode=require
+- Provision falla → kubectl logs -n houston-system deployment/houston-control-plane
 
-Entrega final: URLs smoke OK, pod control-plane Running, instrucciones para el operador si falta TLS/certificado.
+Entrega: /health OK, control-plane Running, operador tiene token + instrucciones app.
 ```
 
 ---
 
-## Arquitectura desplegada
+## Arquitectura
 
 ```text
 Ingress (cloudhouston.blyxlabs.dev)
-  → Service houston-control-plane:8788 (namespace houston-system)
-      → Pod control-plane (kubectl + RBAC)
-          → Postgres Supabase (externo)
-          → Por cada agente cloud (dinámico):
-              Namespace hou-org-{org_id}
-              Deployment + PVC + Secret + Service :7777
-              Imagen houston/engine:dev
+  → houston-control-plane:8788 (houston-system)
+      → Postgres Supabase (externo)
+      → Por agente: hou-org-{org} / Deployment + PVC + houston/engine:dev (claude + codex)
 ```
 
 ## Archivos clave
 
 | Ruta | Uso |
 |------|-----|
-| `cloud/k8s/overlays/blyxlabs/` | Kustomize del despliegue |
+| `cloud/k8s/overlays/blyxlabs/` | Kustomize |
 | `cloud/k8s/scripts/build-images.sh` | Build engine + control-plane |
-| `cloud/k8s/scripts/create-control-plane-secret.sh` | Secret desde perfil env |
-| `cloud/control-plane/Dockerfile.k8s` | Imagen control-plane con kubectl |
-| `cloud/control-plane/deploy/profiles/cloudhouston.blyxlabs.dev.env.example` | Plantilla (repo) |
-| `cloud/control-plane/deploy/profiles/cloudhouston.blyxlabs.dev.env` | Secretos reales (gitignored, solo VPS/Mac) |
+| `cloud/k8s/scripts/create-control-plane-secret.sh` | Secret desde perfil |
+| `always-on/Dockerfile` | Imagen engine (Claude Code + Codex) |
+| `cloud/control-plane/deploy/profiles/*.env.example` | Plantillas |

@@ -106,6 +106,10 @@
       "rename": "Rename",
       "reveal": "Show in File Manager",
       "delete": "Move to Trash"
-    }
+    },
+    "provisioningTitle": "Setting up file storage",
+    "provisioningDescription": "Your cloud agent is still starting. Files will appear here once it is ready.",
+    "cloudOpenUnavailable": "Opening files is not available for cloud agents yet.",
+    "loadError": "Could not load files"
   }
 }

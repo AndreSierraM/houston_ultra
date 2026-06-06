@@ -1,4 +1,5 @@
 import type { TabProps } from "../../lib/types";
+import { useUIStore } from "../../stores/ui";
 import { useAgentBoardSource } from "../board/use-agent-board-source";
 import { MissionBoard } from "../board/mission-board";
 
@@ -7,10 +8,11 @@ import { MissionBoard } from "../board/mission-board";
  * `<MissionBoard>`; this tab only builds the per-agent data source.
  */
 export default function BoardTab({ agent, agentDef }: TabProps) {
+  const viewMode = useUIStore((s) => s.viewMode);
   const source = useAgentBoardSource(agent, agentDef);
   return (
     <div className="flex flex-col h-full">
-      <MissionBoard source={source} />
+      <MissionBoard source={source} syncPanelOpen={viewMode === "activity"} />
     </div>
   );
 }

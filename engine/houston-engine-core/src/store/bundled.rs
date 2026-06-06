@@ -295,6 +295,18 @@ pub(super) fn bundled_catalog() -> CoreResult<Option<Vec<StoreListing>>> {
     Ok(Some(catalog.agents))
 }
 
+/// Bundled Store template for `config_id` when callers omit `installedPath`
+/// (cloud burst lab, cloud create from catalog before local install).
+pub(crate) fn bundled_agent_template_path(config_id: &str) -> Option<PathBuf> {
+    let root = bundled_store_root()?;
+    let agent_dir = root.join("agents").join(config_id);
+    if agent_dir.join("houston.json").exists() {
+        Some(agent_dir)
+    } else {
+        None
+    }
+}
+
 fn bundled_store_root() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("HOUSTON_STORE_DIR") {
         let path = PathBuf::from(dir);

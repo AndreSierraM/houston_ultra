@@ -75,5 +75,14 @@
     "alreadyConnected": "Já conectado",
     "connected": "Conectado",
     "connect": "Conectar"
+  },
+  "cloudSync": {
+    "bannerTitle": "Ja conectado neste computador",
+    "bannerDescription": "Copie seus apps para este agente na nuvem com um toque. Gmail e os demais funcionarao sem conectar de novo.",
+    "bannerAction": "Copiar deste computador",
+    "success": "Seus apps ja estao na nuvem. Voce nao precisa conecta-los de novo.",
+    "failed": "Nao foi possivel copiar Composio para a nuvem",
+    "needsLocalTitle": "Entre neste computador primeiro",
+    "needsLocalDescription": "Abra Integracoes com um agente local, entre no Composio e tente de novo."
   }
 }

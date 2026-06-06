@@ -5,7 +5,7 @@ use houston_terminal_manager::provider_env::{
     self, apply_owner_only_perms, canonical_env_path, is_env_var_line, merge_env_contents,
     read_env_paths, tmp_path_for,
 };
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::io::AsyncWriteExt;
 
 pub async fn read_stored_api_key(provider: &str, env_var: &str) -> CoreResult<Option<String>> {
@@ -135,15 +135,6 @@ pub fn blocking_env_var_with(
         Some(v) if !v.trim().is_empty() => Some(env_var),
         _ => None,
     }
-}
-
-pub fn resolve_canonical_env_path(provider: &str) -> CoreResult<PathBuf> {
-    dirs::home_dir().ok_or_else(|| {
-        CoreError::Internal(format!(
-            "could not resolve home directory for ~/.houston/providers/{provider}/.env"
-        ))
-    })?;
-    Ok(canonical_env_path(provider))
 }
 
 #[cfg(test)]

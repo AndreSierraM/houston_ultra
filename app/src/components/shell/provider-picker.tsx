@@ -2,7 +2,13 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { HoustonEvent } from "@houston-ai/core";
 import { Spinner, ConfirmDialog } from "@houston-ai/core";
-import { tauriProvider, type ProviderStatus } from "../../lib/tauri";
+import {
+  cancelLocalProviderLogin,
+  checkLocalProviderStatus,
+  launchLocalProviderLogin,
+  launchLocalProviderLogout,
+} from "../../lib/local-provider-bridge";
+import type { ProviderStatus } from "../../lib/tauri";
 import {
   PROVIDERS,
   COMING_SOON_PROVIDERS,
@@ -49,7 +55,7 @@ export function ProviderPicker({ onSelect }: Props) {
     // Probe every active provider in parallel. New providers added to the
     // PROVIDERS list are picked up automatically; never hardcode ids here.
     const results = await Promise.all(
-      PROVIDERS.map(async (p) => [p.id, await tauriProvider.checkStatus(p.id)] as const),
+      PROVIDERS.map(async (p) => [p.id, await checkLocalProviderStatus(p.id)] as const),
     );
     const next: Record<string, ProviderStatus> = {};
     for (const [id, status] of results) {
@@ -148,9 +154,9 @@ export function ProviderPicker({ onSelect }: Props) {
   }, [addToast, loadStatuses, t]);
 
   const handleConnect = async (provider: ProviderInfo) => {
-    // API-key providers (e.g. Gemini) have no CLI login flow. The engine
-    // would return a BadRequest if we called `launchLogin`; instead we open
-    // a dedicated dialog that walks the user through pasting an API key.
+    // API-key providers (OpenRouter) have no CLI login flow. The
+    // engine returns BadRequest on `launchLogin`; we open a dialog to paste
+    // an API key instead.
     if (usesConnectDialog(provider)) {
       setApiKeyDialogFor(provider);
       return;
@@ -161,7 +167,7 @@ export function ProviderPicker({ onSelect }: Props) {
       // engine) can't receive the CLI's localhost OAuth callback, so ask
       // for the headless device-code flow. The engine ignores the flag for
       // providers without a device variant (Claude keeps its paste-back).
-      await tauriProvider.launchLogin(provider.id, { deviceAuth: providerUsesDeviceAuth() });
+      await launchLocalProviderLogin(provider.id, { deviceAuth: providerUsesDeviceAuth() });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[provider-picker] launchLogin(${provider.id}) failed:`, msg);
@@ -180,7 +186,7 @@ export function ProviderPicker({ onSelect }: Props) {
     // optimistically — the engine's benign ProviderLoginComplete is the
     // backstop, but the user clicked Cancel and should see it react now.
     try {
-      await tauriProvider.cancelLogin(provider.id);
+      await cancelLocalProviderLogin(provider.id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[provider-picker] cancelLogin(${provider.id}) failed:`, msg);
@@ -198,7 +204,7 @@ export function ProviderPicker({ onSelect }: Props) {
   const handleSignOut = async (provider: ProviderInfo) => {
     setPendingId(provider.id);
     try {
-      await tauriProvider.launchLogout(provider.id);
+      await launchLocalProviderLogout(provider.id);
       await loadStatuses();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

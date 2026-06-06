@@ -24,6 +24,14 @@ const cloudAgent: Agent = {
   runtime: "cloud_24_7",
 };
 
+const cloudUriAgent: Agent = {
+  id: "cloud-uri",
+  name: "Cloud URI",
+  folderPath: "cloud://cloud-uri",
+  configId: "cfg",
+  createdAt: "2026-01-01T00:00:00.000Z",
+};
+
 describe("runtimeActivationPlan", () => {
   it("local agent clears cloud WS and repoints sidecar watcher", () => {
     deepStrictEqual(runtimeActivationPlan(localAgent), {
@@ -42,11 +50,27 @@ describe("runtimeActivationPlan", () => {
       disconnectCloudWs: false,
     });
   });
+
+  it("cloud:// folderPath without runtime field is treated as cloud", () => {
+    deepStrictEqual(runtimeActivationPlan(cloudUriAgent), {
+      cloud: true,
+      stopLocalWatcher: true,
+      connectCloudWs: true,
+      disconnectCloudWs: false,
+    });
+  });
 });
 
 describe("runtimeDeactivationPlan", () => {
   it("leaving cloud agent drops WS only (scheduler stays 24/7)", () => {
     deepStrictEqual(runtimeDeactivationPlan(cloudAgent), {
+      disconnectCloudWs: true,
+      stopLocalWatcher: false,
+    });
+  });
+
+  it("leaving cloud:// agent drops proxied WS even without runtime field", () => {
+    deepStrictEqual(runtimeDeactivationPlan(cloudUriAgent), {
       disconnectCloudWs: true,
       stopLocalWatcher: false,
     });

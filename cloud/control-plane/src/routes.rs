@@ -31,12 +31,15 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/agents", get(list_agents).post(create_agent))
         .route("/agents/shared", get(list_shared_agents))
         .route("/agents/:id", patch(patch_agent).delete(delete_agent))
+        .route("/agents/:id/workers", get(list_workers).post(create_worker))
         .route("/agents/:id/status", get(agent_status))
         .route("/agents/:id/restart", post(restart_agent))
+        .route("/agents/:id/stop", post(stop_agent))
+        .route("/agents/:id/start", post(start_agent))
         .route("/agents/:id/shares", get(list_shares).post(upsert_share))
         .route("/agents/:id/shares/:user_id", delete(revoke_share))
         .route(
-            "/agents/:id/proxy/{*tail}",
+            "/agents/:id/proxy/*tail",
             axum::routing::any(crate::proxy::proxy_rest),
         )
         .route("/agents/:id/ws", get(crate::ws_proxy::proxy_ws))
@@ -103,6 +106,34 @@ async fn delete_agent(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+async fn create_worker(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(parent_id): Path<Uuid>,
+    Json(body): Json<agents::CreateWorkerAgent>,
+) -> ApiResult<Json<agents::CloudAgent>> {
+    Ok(Json(
+        agents::create_worker(
+            &state.db,
+            state.runtime.as_ref(),
+            &principal,
+            parent_id,
+            body,
+        )
+        .await?,
+    ))
+}
+
+async fn list_workers(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(parent_id): Path<Uuid>,
+) -> ApiResult<Json<Vec<agents::CloudAgent>>> {
+    Ok(Json(
+        agents::list_workers(&state.db, &principal, parent_id).await?,
+    ))
+}
+
 async fn agent_status(
     State(state): State<Arc<AppState>>,
     principal: Principal,
@@ -136,6 +167,54 @@ async fn restart_agent(
     )
     .await;
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+async fn stop_agent(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(agent_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    agents::assert_agent_access(&state.db, &principal, agent_id, "admin").await?;
+    state
+        .runtime
+        .stop(agent_id)
+        .await
+        .map_err(|e| crate::error::ApiError::internal(e.to_string()))?;
+    agents::update_runtime_status(&state.db, agent_id, "stopped").await?;
+    crate::audit::log(
+        &state.db,
+        Some(principal.org_id),
+        Some(agent_id),
+        Some(principal.user_id),
+        "agent.stop",
+        None,
+    )
+    .await;
+    Ok(Json(serde_json::json!({ "ok": true, "status": "stopped" })))
+}
+
+async fn start_agent(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(agent_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    agents::assert_agent_access(&state.db, &principal, agent_id, "admin").await?;
+    state
+        .runtime
+        .start(agent_id)
+        .await
+        .map_err(|e| crate::error::ApiError::internal(e.to_string()))?;
+    agents::update_runtime_status(&state.db, agent_id, "running").await?;
+    crate::audit::log(
+        &state.db,
+        Some(principal.org_id),
+        Some(agent_id),
+        Some(principal.user_id),
+        "agent.start",
+        None,
+    )
+    .await;
+    Ok(Json(serde_json::json!({ "ok": true, "status": "running" })))
 }
 
 async fn list_shares(

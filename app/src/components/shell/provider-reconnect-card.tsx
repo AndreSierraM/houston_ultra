@@ -11,6 +11,8 @@ import {
 import {
   providerIsAuthenticated,
   providerReconnectSignalState,
+  resolveReconnectProviderId,
+  shouldClearStaleAuthRequired,
 } from "./provider-reconnect-state";
 import { ApiKeyAdvancedSection } from "./api-key-advanced-section";
 import { ApiKeyForm } from "./api-key-form";
@@ -34,9 +36,26 @@ export function ProviderReconnectCard({
   const [resolvedSignal, setResolvedSignal] = useState<string | null>(null);
   const [signalNeedsAuth, setSignalNeedsAuth] = useState(false);
 
+  useEffect(() => {
+    if (shouldClearStaleAuthRequired(authRequired, providerId)) {
+      setAuthRequired(null);
+    }
+  }, [authRequired, providerId, setAuthRequired]);
+
+  useEffect(() => {
+    setResolvedSignal(null);
+    setSignalNeedsAuth(false);
+  }, [providerId]);
+
+  const matchedAuthRequired =
+    authRequired && providerId && authRequired === providerId ? authRequired : null;
   const shouldCheckSignal =
-    !authRequired && !!providerId && !!signalKey && signalKey !== resolvedSignal;
-  const activeProviderId = authRequired ?? (signalNeedsAuth ? providerId : null);
+    !matchedAuthRequired && !!providerId && !!signalKey && signalKey !== resolvedSignal;
+  const activeProviderId = resolveReconnectProviderId({
+    authRequired,
+    activeProviderId: providerId,
+    signalNeedsAuth,
+  });
   const provider = activeProviderId ? getProvider(activeProviderId) : null;
   const apiKeyOnly = isApiKeyOnlyProvider(provider);
   const dualPath = isDualPathConnectProvider(provider);
@@ -128,6 +147,7 @@ export function ProviderReconnectCard({
                   providerName={provider.name}
                   providerId={provider.id}
                   apiKeyConsoleUrl={provider.apiKeyConsoleUrl ?? ""}
+                  credentialTarget="activeAgent"
                   onSaved={() => {
                     setAuthRequired(null);
                     if (signalKey) setResolvedSignal(signalKey);
@@ -172,6 +192,7 @@ export function ProviderReconnectCard({
                     provider={provider}
                     expanded={apiKeyExpanded}
                     onExpandedChange={setApiKeyExpanded}
+                    credentialTarget="activeAgent"
                     onSaved={() => {
                       setAuthRequired(null);
                       if (signalKey) setResolvedSignal(signalKey);

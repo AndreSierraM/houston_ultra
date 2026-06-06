@@ -3,7 +3,7 @@
 import schema from "@houston-ai/agent-schemas/config.schema.json";
 import { readAgentJson, writeAgentJson } from "./agent-file";
 
-export const CONFIG_PROVIDERS = ["anthropic", "openai", "gemini", "openrouter"] as const;
+export const CONFIG_PROVIDERS = ["anthropic", "openai", "openrouter"] as const;
 export type ConfigProvider = (typeof CONFIG_PROVIDERS)[number];
 
 export function isConfigProvider(value: string): value is ConfigProvider {

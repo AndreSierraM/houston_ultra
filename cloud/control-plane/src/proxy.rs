@@ -6,9 +6,10 @@ use crate::auth::Principal;
 use crate::db::Db;
 use crate::entitlements;
 use crate::error::{ApiError, ApiResult};
+use crate::runtime_wake;
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{OriginalUri, Path, State},
     http::{Request, StatusCode},
     response::Response,
 };
@@ -29,21 +30,23 @@ struct RuntimeTarget {
 pub async fn proxy_rest(
     State(state): State<Arc<crate::state::AppState>>,
     principal: Principal,
-    Path((agent_id, tail)): Path<(Uuid, String)>,
+    Path((agent_id, _)): Path<(Uuid, String)>,
+    OriginalUri(original_uri): OriginalUri,
     req: Request<Body>,
 ) -> ApiResult<Response> {
-    let tail = tail.trim_start_matches('/').to_string();
-    if tail.is_empty() {
-        return Err(ApiError::bad_request("Invalid proxy path"));
-    }
+    let tail = extract_proxy_tail(agent_id, original_uri.path())?;
     entitlements::assert_active(&state.db, &principal).await?;
     let (parts, body) = req.into_parts();
     let method = parts.method.clone();
     let sensitive = is_credential_route(&tail);
     assert_agent_access_for_proxy(&state.db, &principal, agent_id, &tail, &method).await?;
+    runtime_wake::ensure_agent_awake(&state.db, state.runtime.as_ref(), agent_id).await?;
     let runtime = load_runtime(&state.db, agent_id).await?;
     // HoustonClient calls `{proxy}/v1/...` — tail already includes `v1/...`.
-    let target = build_proxy_target(&runtime.internal_url, &tail);
+    let target = append_proxy_query(
+        &build_proxy_target(&runtime.internal_url, &tail),
+        original_uri.query(),
+    );
     let body_bytes = axum::body::to_bytes(body, usize::MAX)
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
@@ -56,11 +59,10 @@ pub async fn proxy_rest(
         }
         forward = forward.header(name, value);
     }
-    let resp = forward
-        .body(body_bytes)
-        .send()
-        .await
-        .map_err(|e| ApiError::internal(format!("Engine proxy failed: {e}")))?;
+    let resp = forward.body(body_bytes).send().await.map_err(|e| {
+        tracing::error!(%agent_id, path = %tail, error = %e, "Engine proxy request failed");
+        ApiError::internal("Engine proxy failed")
+    })?;
     let status_code = resp.status().as_u16();
     let audit_action = if sensitive {
         "agent.proxy.credentials"
@@ -116,24 +118,6 @@ fn credential_route_kind(tail: &str) -> &'static str {
     }
 }
 
-/// Suffix after `/agents/{id}/proxy/` in the incoming URI.
-///
-/// Accepts the full client path (via [`OriginalUri`]) or the prefix-stripped path
-/// that axum passes to nested `fallback` handlers.
-pub fn proxy_tail(agent_id: Uuid, path: &str) -> Option<&str> {
-    let marker = format!("/agents/{agent_id}/proxy");
-    if let Some((_, rest)) = path.split_once(&marker) {
-        let tail = rest.trim_start_matches('/');
-        return if tail.is_empty() { None } else { Some(tail) };
-    }
-    let stripped = path.trim_start_matches('/');
-    if stripped.is_empty() || stripped.starts_with("agents/") {
-        None
-    } else {
-        Some(stripped)
-    }
-}
-
 /// Join engine base URL with proxied tail path (HoustonClient sends `v1/...` in tail).
 pub fn build_proxy_target(internal_url: &str, tail: &str) -> String {
     format!(
@@ -143,48 +127,100 @@ pub fn build_proxy_target(internal_url: &str, tail: &str) -> String {
     )
 }
 
+/// Append the incoming URI query string to a proxied engine URL.
+pub fn append_proxy_query(target: &str, query: Option<&str>) -> String {
+    match query {
+        Some(q) if !q.is_empty() => format!("{target}?{q}"),
+        _ => target.to_string(),
+    }
+}
+
+const PROXY_PREFIX: &str = "/v1/cloud/agents/";
+
+/// Tail path after `/v1/cloud/agents/{id}/proxy/` from the original request URI.
+pub fn extract_proxy_tail(agent_id: Uuid, original_path: &str) -> ApiResult<String> {
+    let marker = format!("{PROXY_PREFIX}{agent_id}/proxy/");
+    let tail = original_path
+        .strip_prefix(&marker)
+        .ok_or_else(|| ApiError::bad_request("Invalid proxy path"))?
+        .trim_start_matches('/');
+    if tail.is_empty() {
+        return Err(ApiError::bad_request("Invalid proxy path"));
+    }
+    Ok(repair_decoded_agent_path_in_tail(tail))
+}
+
+/// Axum's wildcard tail decodes `%2F` into `/`, splitting one engine path segment
+/// into many. Re-encode the agent_path portion for `/v1/agents/{path}/sessions…`.
+pub fn repair_decoded_agent_path_in_tail(tail: &str) -> String {
+    const PREFIX: &str = "v1/agents/";
+    let Some(rest) = tail.strip_prefix(PREFIX) else {
+        return tail.to_string();
+    };
+    let Some((agent_part, suffix)) = rest.split_once("/sessions") else {
+        return tail.to_string();
+    };
+    if !agent_part.contains('/') {
+        return tail.to_string();
+    }
+    let normalized = normalize_absolute_agent_path(agent_part);
+    let encoded = encode_path_segment(&normalized);
+    format!("{PREFIX}{encoded}/sessions{suffix}")
+}
+
+fn normalize_absolute_agent_path(part: &str) -> String {
+    let collapsed = part
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("/");
+    format!("/{collapsed}")
+}
+
+fn encode_path_segment(path: &str) -> String {
+    path.replace('/', "%2F")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn proxy_tail_full_cloud_path() {
-        let agent_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let path = format!("/v1/cloud/agents/{agent_id}/proxy/v1/health");
-        assert_eq!(proxy_tail(agent_id, &path), Some("v1/health"));
-    }
-
-    #[test]
-    fn proxy_tail_cloud_router_path() {
-        let agent_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let path = format!("/agents/{agent_id}/proxy/v1/sessions/abc");
-        assert_eq!(proxy_tail(agent_id, &path), Some("v1/sessions/abc"));
-    }
-
-    #[test]
-    fn proxy_tail_nested_stripped_path() {
-        let agent_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        assert_eq!(proxy_tail(agent_id, "/v1/health"), Some("v1/health"));
-        assert_eq!(proxy_tail(agent_id, "v1/workspaces"), Some("v1/workspaces"));
-    }
-
-    #[test]
-    fn proxy_tail_rejects_empty_and_wrong_agent() {
-        let agent_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let other = Uuid::parse_str("6ba7b810-9dad-11d1-80b4-00c04fd430c8").unwrap();
-        assert_eq!(proxy_tail(agent_id, "/"), None);
-        assert_eq!(proxy_tail(agent_id, ""), None);
-        let bare = format!("/v1/cloud/agents/{agent_id}/proxy");
-        assert_eq!(proxy_tail(agent_id, &bare), None);
-        let path = format!("/agents/{other}/proxy/v1/health");
-        assert_eq!(proxy_tail(agent_id, &path), None);
-    }
+    use uuid::Uuid;
 
     #[test]
     fn credential_route_helpers_redact_provider_only() {
         let tail = "v1/providers/anthropic/credential-import";
         assert_eq!(credential_route_provider(tail), Some("anthropic"));
         assert_eq!(credential_route_kind(tail), "import");
+    }
+
+    #[test]
+    fn append_proxy_query_preserves_engine_path() {
+        let base = build_proxy_target("http://engine:7777", "v1/sessions");
+        assert_eq!(
+            append_proxy_query(&base, Some("limit=10&cursor=abc")),
+            "http://engine:7777/v1/sessions?limit=10&cursor=abc"
+        );
+        assert_eq!(append_proxy_query(&base, None), base);
+        assert_eq!(append_proxy_query(&base, Some("")), base);
+    }
+
+    #[test]
+    fn repair_decoded_session_tail_reencodes_agent_path() {
+        let tail = "v1/agents//data/workspace/Cloud/Test2/sessions";
+        assert_eq!(
+            repair_decoded_agent_path_in_tail(tail),
+            "v1/agents/%2Fdata%2Fworkspace%2FCloud%2FTest2/sessions"
+        );
+    }
+
+    #[test]
+    fn extract_proxy_tail_from_original_uri_path() {
+        let agent_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let path = format!(
+            "/v1/cloud/agents/{agent_id}/proxy/v1/agents/%2Fdata%2Fws%2Fagent/sessions"
+        );
+        let tail = extract_proxy_tail(agent_id, &path).expect("tail");
+        assert_eq!(tail, "v1/agents/%2Fdata%2Fws%2Fagent/sessions");
     }
 }
 

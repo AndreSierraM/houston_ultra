@@ -7,7 +7,7 @@ import {
   ExternalLinkIcon,
 } from "lucide-react";
 import type { ComponentType } from "react";
-import { tauriFiles } from "../lib/tauri";
+import { openAgentFile } from "../lib/open-href";
 
 type LucideIcon = ComponentType<{ className?: string }>;
 
@@ -32,16 +32,21 @@ export function getFileIcon(ext?: string): LucideIcon {
 interface FileCardProps {
   filePath: string;
   agentPath: string;
+  isCloud?: boolean;
 }
 
-export function FileCard({ filePath, agentPath }: FileCardProps) {
+export function FileCard({ filePath, agentPath, isCloud }: FileCardProps) {
   const fileName = filePath.split("/").pop() ?? filePath;
   const ext = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() : undefined;
   const Icon = getFileIcon(ext);
 
   const handleOpen = useCallback(() => {
-    tauriFiles.open(agentPath, filePath).catch(console.error);
-  }, [agentPath, filePath]);
+    openAgentFile(
+      agentPath,
+      filePath,
+      isCloud !== undefined ? { isCloud } : undefined,
+    );
+  }, [agentPath, filePath, isCloud]);
 
   return (
     <button

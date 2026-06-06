@@ -145,7 +145,9 @@ export default function ArchivedTab({ agent, agentDef }: TabProps) {
           onLoadHistory={archivedSearch.loadHistory}
           onHistoryLoaded={handleHistoryLoaded}
           emptyState={emptyState}
-          onPanelOpenChange={setMissionPanelOpen}
+          onPanelOpenChange={
+            viewMode === "archived" ? setMissionPanelOpen : undefined
+          }
           onOpenLink={(url) => openAgentHref(url, path)}
           prepareAttachments={attachmentValidation.prepareAttachments}
           onAttachmentRejections={attachmentValidation.onAttachmentRejections}

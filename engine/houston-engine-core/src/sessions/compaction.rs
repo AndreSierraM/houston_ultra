@@ -38,7 +38,6 @@ fn fallback_summary_model(provider: Provider) -> Option<&'static str> {
         "anthropic" => Some("haiku"),
         "openai" => Some("gpt-5.5-mini"),
         "openrouter" => Some(OPENROUTER_COMPACT_MODEL),
-        "gemini" => Some("gemini-3.1-flash-lite"),
         _ => None,
     }
 }
@@ -205,10 +204,6 @@ mod tests {
         assert_eq!(
             fallback_summary_model("openai".parse().unwrap()),
             Some("gpt-5.5-mini")
-        );
-        assert_eq!(
-            fallback_summary_model("gemini".parse().unwrap()),
-            Some("gemini-3.1-flash-lite")
         );
     }
 

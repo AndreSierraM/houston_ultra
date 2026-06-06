@@ -1,8 +1,10 @@
 //! Integration-style contract tests for cloud engine proxy paths and RBAC.
 
 use axum::{
-    extract::{OriginalUri, Request},
+    extract::Request,
     http::{Method, StatusCode},
+    middleware::{from_fn, Next},
+    response::Response,
     routing::{any, get},
     Router,
 };
@@ -12,7 +14,7 @@ use houston_cloud_control_plane::agent_access::{
 };
 use houston_cloud_control_plane::auth::Principal;
 use houston_cloud_control_plane::db::Db;
-use houston_cloud_control_plane::proxy::{build_proxy_target, proxy_tail};
+use houston_cloud_control_plane::proxy::{append_proxy_query, build_proxy_target};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -50,20 +52,27 @@ async fn catch_all_proxy_route_extracts_id_and_tail() {
     }
 }
 
+/// Mirrors `build_router`: the cloud router (with a layer, like `require_auth`)
+/// mounts the proxy as a wildcard route, then the whole thing is nested under
+/// `/v1/cloud`. A `nest(...).fallback(...)` inner router silently misses under
+/// this double-nest + layer combo and returned a bare 404 ("Engine error 404")
+/// in production. The wildcard route must resolve the full client path.
 #[tokio::test]
-async fn nested_proxy_route_matches_client_path() {
+async fn double_nested_proxy_route_matches_full_client_path() {
     let agent_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
     async fn handler(
-        axum::extract::Path(id): axum::extract::Path<Uuid>,
-        OriginalUri(uri): OriginalUri,
+        axum::extract::Path((id, tail)): axum::extract::Path<(Uuid, String)>,
     ) -> String {
-        proxy_tail(id, uri.path()).unwrap_or("missing").into()
+        format!("{id}:{tail}")
+    }
+    async fn passthrough(req: Request, next: Next) -> Response {
+        next.run(req).await
     }
 
-    let app = Router::new().nest(
-        "/v1/cloud/agents/:id/proxy",
-        Router::new().fallback(any(handler)),
-    );
+    let cloud = Router::new()
+        .route("/agents/:id/proxy/*tail", any(handler))
+        .layer(from_fn(passthrough));
+    let app = Router::new().nest("/v1/cloud", cloud);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("local addr");
@@ -73,8 +82,23 @@ async fn nested_proxy_route_matches_client_path() {
 
     let url = format!("http://{addr}/v1/cloud/agents/{agent_id}/proxy/v1/health");
     let resp = reqwest::get(&url).await.expect("proxy route");
-    assert_eq!(resp.status(), 200);
-    assert_eq!(resp.text().await.expect("body"), "v1/health");
+    assert_eq!(resp.status(), 200, "double-nested wildcard proxy must match");
+    assert_eq!(resp.text().await.expect("body"), format!("{agent_id}:v1/health"));
+
+    let sessions = format!(
+        "http://{addr}/v1/cloud/agents/{agent_id}/proxy/v1/agents/%2Fdata%2Fws%2Fagent/sessions"
+    );
+    let resp = reqwest::Client::new()
+        .post(&sessions)
+        .body("{}")
+        .send()
+        .await
+        .expect("proxy route with encoded agent_path segment");
+    assert_eq!(
+        resp.status(),
+        200,
+        "wildcard proxy must match engine session paths (encoded slashes in one segment)"
+    );
 }
 
 #[test]
@@ -193,6 +217,75 @@ async fn assert_agent_access_for_proxy_blocks_operator_on_credential_import() {
 }
 
 #[tokio::test]
+async fn proxy_target_forwards_query_string_to_engine() {
+    let seen = Arc::new(Mutex::new(String::new()));
+    let seen_capture = seen.clone();
+    let app = Router::new().route(
+        "/*path",
+        get(move |req: Request| {
+            let seen_capture = seen_capture.clone();
+            async move {
+                let uri = req.uri().to_string();
+                *seen_capture.lock().expect("lock") = uri;
+                "ok"
+            }
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+
+    let internal_url = format!("http://{addr}");
+    let target = append_proxy_query(
+        &build_proxy_target(&internal_url, "v1/sessions"),
+        Some("limit=5&cursor=xyz"),
+    );
+    assert_eq!(target, format!("{internal_url}/v1/sessions?limit=5&cursor=xyz"));
+
+    let resp = reqwest::get(&target).await.expect("forward");
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        *seen.lock().expect("lock"),
+        "/v1/sessions?limit=5&cursor=xyz",
+        "engine must receive proxied query string"
+    );
+}
+
+#[tokio::test]
+async fn assert_agent_access_for_proxy_blocks_unrelated_user() {
+    let db = match test_db().await {
+        Some(db) => db,
+        None => return,
+    };
+    let org_id = Uuid::new_v4();
+    let agent_id = Uuid::new_v4();
+    let owner_id = Uuid::new_v4();
+    let stranger_id = Uuid::new_v4();
+    seed_agent_without_share(&db, org_id, agent_id, owner_id).await;
+
+    let principal = Principal {
+        user_id: stranger_id,
+        email: Some("stranger@example.com".into()),
+        org_id,
+        org_role: "member".into(),
+    };
+
+    let err = assert_agent_access_for_proxy(
+        &db,
+        &principal,
+        agent_id,
+        "v1/health",
+        &Method::GET,
+    )
+    .await
+    .expect_err("unrelated user must not proxy to engine");
+    assert_eq!(err.status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
 async fn assert_agent_access_for_method_get_vs_post_roles() {
     let db = match test_db().await {
         Some(db) => db,
@@ -225,6 +318,24 @@ async fn test_db() -> Option<Db> {
     let db = Db::connect(&url).await.ok()?;
     db.migrate().await.ok()?;
     Some(db)
+}
+
+async fn seed_agent_without_share(db: &Db, org_id: Uuid, agent_id: Uuid, owner_id: Uuid) {
+    sqlx::query("INSERT INTO organizations (id, name) VALUES ($1, 'test-org')")
+        .bind(org_id)
+        .execute(db.pool())
+        .await
+        .expect("org");
+    sqlx::query(
+        "INSERT INTO cloud_agents (id, org_id, owner_user_id, name, config_id, folder_path)
+         VALUES ($1, $2, $3, 'test', 'default', '/data/workspace')",
+    )
+    .bind(agent_id)
+    .bind(org_id)
+    .bind(owner_id)
+    .execute(db.pool())
+    .await
+    .expect("agent");
 }
 
 async fn seed_viewer_share(db: &Db, org_id: Uuid, agent_id: Uuid, viewer_id: Uuid) {

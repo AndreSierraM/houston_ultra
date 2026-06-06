@@ -42,7 +42,8 @@
   },
   "agentPicker": {
     "title": "Which agent should run this?",
-    "description": "Pick an agent to open a fresh conversation."
+    "description": "Pick an agent to open a fresh conversation.",
+    "cloudBadge": "Cloud agent"
   },
   "skillPicker": {
     "title": "Pick a skill",

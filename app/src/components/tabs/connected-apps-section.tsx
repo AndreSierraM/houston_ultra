@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { ConfirmDialog } from "@houston-ai/core";
 import { tauriConnections, tauriSystem } from "../../lib/tauri";
+import { queryKeys } from "../../lib/query-keys";
 import { useInvalidateConnections } from "../../hooks/queries";
 import { useComposioRefetchOnReturn } from "../../hooks/use-composio-refetch-on-return";
 import { useUIStore } from "../../stores/ui";
@@ -17,20 +18,22 @@ interface ConnectedAppsSectionProps {
   connectedToolkits: Set<string>;
   /** Composio workspace slug (whoami's default_org_name) for deep-links. */
   orgName?: string | null;
+  agentPath?: string;
 }
 
 export function ConnectedAppsSection({
   connectedToolkits,
   orgName,
+  agentPath,
 }: ConnectedAppsSectionProps) {
   const { t } = useTranslation("integrations");
-  const invalidate = useInvalidateConnections();
-  const markWaitingForAuth = useComposioRefetchOnReturn();
+  const invalidate = useInvalidateConnections(agentPath);
+  const markWaitingForAuth = useComposioRefetchOnReturn(agentPath);
   const addToast = useUIStore((s) => s.addToast);
 
   const { data: apiApps } = useQuery({
-    queryKey: ["composio-apps"],
-    queryFn: () => tauriConnections.listApps(),
+    queryKey: queryKeys.composioApps(agentPath),
+    queryFn: () => tauriConnections.listApps(agentPath),
     staleTime: 1000 * 60 * 60,
   });
 
@@ -82,7 +85,7 @@ export function ConnectedAppsSection({
     async (app: ConnectedAppInfo) => {
       setCardBusy(app.toolkit, "reconnecting");
       try {
-        const { redirectUrl } = await tauriConnections.reconnectApp(app.toolkit);
+        const { redirectUrl } = await tauriConnections.reconnectApp(app.toolkit, agentPath);
         if (redirectUrl) {
           // OAuth scheme: open the browser for re-consent. `openUrl` is a
           // raw OS-bridge call that does NOT route through `call()`, so we
@@ -114,14 +117,14 @@ export function ConnectedAppsSection({
         setCardBusy(app.toolkit, null);
       }
     },
-    [addToast, invalidate, markWaitingForAuth, setCardBusy, t],
+    [addToast, agentPath, invalidate, markWaitingForAuth, setCardBusy, t],
   );
 
   const handleDisconnect = useCallback(
     async (app: ConnectedAppInfo) => {
       setCardBusy(app.toolkit, "disconnecting");
       try {
-        await tauriConnections.disconnectApp(app.toolkit);
+        await tauriConnections.disconnectApp(app.toolkit, agentPath);
       } catch {
         // Surfaced by `call()` as an error toast.
       } finally {
@@ -131,7 +134,7 @@ export function ConnectedAppsSection({
         setCardBusy(app.toolkit, null);
       }
     },
-    [invalidate, setCardBusy],
+    [agentPath, invalidate, setCardBusy],
   );
 
   if (connectedApps.length === 0) {

@@ -245,11 +245,17 @@ export function useAgentChatPanel({
   }, [sessionFeedItems, effectiveProvider, effectiveModel]);
   const modelLabel = getModel(effectiveProvider, effectiveModel)?.label;
 
+  const setAuthRequired = useUIStore((s) => s.setAuthRequired);
+
   const handleModelSelect = useCallback(
     async (prov: string, mod: string) => {
       // Optimistic UI: the picker flips instantly while the writes fan out.
       setAgentProvider(prov);
       setAgentModel(mod);
+      const staleAuth = useUIStore.getState().authRequired;
+      if (staleAuth && staleAuth !== prov) {
+        setAuthRequired(null);
+      }
       try {
         if (path) {
           const cfg = await tauriConfig.read(path);
@@ -274,7 +280,7 @@ export function useAgentChatPanel({
         });
       }
     },
-    [path, selectedActivityId, addToast, t],
+    [path, selectedActivityId, addToast, setAuthRequired, t],
   );
   const handleEffortSelect = useCallback(
     async (effort: EffortLevel) => {
@@ -435,7 +441,7 @@ export function useAgentChatPanel({
           // agentProvider ?? wsProvider), so the send must mirror it.
           // Passing only `chatProvider` lets the engine fall back to its own
           // resolution chain (which doesn't consult activity records),
-          // producing the "dropdown says Gemini, response from Claude" bug.
+          // producing a dropdown vs response provider mismatch.
           providerOverride: effectiveProvider,
           modelOverride: effectiveModel,
           effortOverride: effectiveEffort,
@@ -588,7 +594,7 @@ export function useAgentChatPanel({
       const signalKey = providerAuthSignalKey(feedItems);
       return (
         <ProviderReconnectCard
-          providerId={signalKey ? effectiveProvider : undefined}
+          providerId={effectiveProvider}
           signalKey={signalKey ?? undefined}
         />
       );

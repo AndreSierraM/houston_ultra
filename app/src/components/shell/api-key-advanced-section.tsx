@@ -2,12 +2,17 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ProviderInfo } from "../../lib/providers";
-import { supportsProviderApiKeySave } from "../../lib/provider-api-key";
+import {
+  supportsProviderApiKeySave,
+  type ProviderCredentialSaveTarget,
+} from "../../lib/provider-api-key";
 import { ApiKeyForm } from "./api-key-form";
 import { ConnectOrSeparator } from "./connect-dialog-layout";
 
 interface Props {
   provider: ProviderInfo;
+  /** Where to persist API keys. Cloud reconnect uses `activeAgent`. */
+  credentialTarget?: ProviderCredentialSaveTarget;
   onSaved: () => void;
   /** Controlled expand state; omit for internal state. */
   expanded?: boolean;
@@ -17,6 +22,7 @@ interface Props {
 export function ApiKeyAdvancedSection({
   provider,
   onSaved,
+  credentialTarget,
   expanded: expandedProp,
   onExpandedChange,
 }: Props) {
@@ -48,6 +54,7 @@ export function ApiKeyAdvancedSection({
           providerId={provider.id}
           apiKeyConsoleUrl={provider.apiKeyConsoleUrl ?? ""}
           saveEnabled={saveEnabled}
+          credentialTarget={credentialTarget}
           onSaved={onSaved}
         />
       )}

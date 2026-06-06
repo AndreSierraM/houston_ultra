@@ -1,24 +1,27 @@
 import type { CSSProperties } from "react";
+import { Cloud } from "lucide-react";
 import { Badge, HoustonAvatar, cn, resolveAgentColor } from "@houston-ai/core";
 
 interface AgentSidebarIconProps {
   color?: string;
   running: boolean;
   runningLabel: string;
+  isCloud?: boolean;
+  cloudLabel?: string;
 }
 
 export function AgentSidebarIcon({
   color,
   running,
   runningLabel,
+  isCloud = false,
+  cloudLabel,
 }: AgentSidebarIconProps) {
   const avatar = (
     <HoustonAvatar color={resolveAgentColor(color)} diameter={20} />
   );
 
-  if (!running) return avatar;
-
-  return (
+  const base = running ? (
     <span
       className={cn(
         "size-6 shrink-0 rounded-full flex items-center justify-center",
@@ -28,6 +31,26 @@ export function AgentSidebarIcon({
       title={runningLabel}
     >
       {avatar}
+    </span>
+  ) : (
+    avatar
+  );
+
+  if (!isCloud) return base;
+
+  return (
+    <span className="relative inline-flex shrink-0">
+      {base}
+      <span
+        className={cn(
+          "absolute -bottom-1 -right-1 flex size-3 items-center justify-center",
+          "rounded-full bg-sidebar text-foreground/70",
+        )}
+        title={cloudLabel}
+        aria-label={cloudLabel}
+      >
+        <Cloud className="size-2.5" aria-hidden />
+      </span>
     </span>
   );
 }

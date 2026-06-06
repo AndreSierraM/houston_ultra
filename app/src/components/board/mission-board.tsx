@@ -26,7 +26,14 @@ import type { BoardSource } from "./board-source";
  * the full AIBoard prop spread — and pulls the divergent pieces (data, active
  * agent, new-mission flow, bulk routing, toolbar, dialogs) from `source`.
  */
-export function MissionBoard({ source }: { source: BoardSource }) {
+export function MissionBoard({
+  source,
+  syncPanelOpen = true,
+}: {
+  source: BoardSource;
+  /** When false, this board does not push panel open/close into the global UI store. */
+  syncPanelOpen?: boolean;
+}) {
   const { t } = useTranslation(["dashboard", "board"]);
   const panelContainer = useDetailPanelContainer();
   const setMissionPanelOpen = useUIStore((s) => s.setMissionPanelOpen);
@@ -148,7 +155,7 @@ export function MissionBoard({ source }: { source: BoardSource }) {
           onPanelCloserReady={handleCloserReady}
           emptyState={source.emptyState}
           panelContainer={panelContainer}
-          onPanelOpenChange={setMissionPanelOpen}
+          onPanelOpenChange={syncPanelOpen ? setMissionPanelOpen : undefined}
           onStopSession={source.stopSession}
           drafts={drafts}
           onDraftChange={onDraftChange}

@@ -16,6 +16,7 @@ pub mod error;
 pub mod proxy;
 pub mod routes;
 pub mod runtime;
+pub mod runtime_wake;
 pub mod shares;
 pub mod state;
 pub mod ws_proxy;

@@ -1,8 +1,8 @@
 # Houston Engine — standalone deployment image.
 #
 # Produces a self-contained image that runs `houston-engine` and ships
-# the three provider CLIs Houston agents need (Claude Code, Codex,
-# Composio). Typical deployment: VPS (Houston Always On) or Kubernetes,
+# the provider CLIs cloud agents need (Claude Code, Codex).
+# Typical deployment: VPS (Houston Always On) or Kubernetes,
 # behind a reverse proxy with TLS.
 #
 # Provider CLIs install under /opt/houston (immutable). Persistent agent
@@ -46,7 +46,7 @@ RUN cargo build --release -p houston-engine-server --bin houston-engine
 # ---------- Provider-CLI install stage ----------
 # CLIs install under /opt/houston (not /data) so a PVC mount on /data does
 # not hide the binaries. The entrypoint symlinks them into $HOME paths the
-# engine resolves at runtime (~/.local/bin, ~/.composio/composio).
+# engine resolves at runtime (~/.local/bin/claude, ~/.local/bin/codex).
 FROM debian:bookworm-slim AS cli-tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl bash tar unzip \
@@ -74,31 +74,36 @@ RUN curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_
  && /opt/houston/.local/bin/codex --version \
  && rm -rf /tmp/codex*
 
-# Composio (MIT). Upstream installer writes to `$HOME/.composio/composio`
-# — that's exactly where `houston_composio::install::standalone_cli_path`
-# looks (`engine/houston-composio/src/install.rs:35`).
-RUN curl -fsSL https://composio.dev/install | bash \
- && test -x /opt/houston/.composio/composio
-
 # ---------- Runtime stage ----------
 # Stays slim. Runtime needs: ca-certs for HTTPS, bash + git + python3
 # because agents spawn these through their Bash tool, and the
 # pre-installed provider binaries from `cli-tools`.
 FROM debian:bookworm-slim
+# Fixed UID/GID so K8s fsGroup matches the container user on fresh PVC mounts.
+ARG HOUSTON_UID=10000
+ARG HOUSTON_GID=10000
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates bash git python3 \
+    ca-certificates bash curl git python3 ripgrep zsh gosu \
  && rm -rf /var/lib/apt/lists/* \
- && useradd --system --create-home --home-dir /data houston \
+ && groupadd -r -g "${HOUSTON_GID}" houston \
+ && useradd -r -u "${HOUSTON_UID}" -g houston -d /data -s /usr/sbin/nologin houston \
  && mkdir -p /data \
  && chown houston:houston /data
 
 COPY --from=build /src/target/release/houston-engine /usr/local/bin/houston-engine
 COPY --from=cli-tools --chown=root:root /opt/houston/.local /opt/houston/.local
-COPY --from=cli-tools --chown=root:root /opt/houston/.composio /opt/houston/.composio
 COPY always-on/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod 755 /usr/local/bin/docker-entrypoint.sh
+# Product prompt: optional. Run scripts/export-cloud-product-prompt.sh before
+# build to bake Houston voice into cloud pods at /opt/houston/product-prompt.txt.
+COPY always-on/ /tmp/always-on/
+RUN chmod 755 /usr/local/bin/docker-entrypoint.sh \
+ && if [ -f /tmp/always-on/houston-product-prompt.txt ]; then \
+      mkdir -p /opt/houston \
+      && install -m 644 /tmp/always-on/houston-product-prompt.txt /opt/houston/product-prompt.txt; \
+    fi \
+ && rm -rf /tmp/always-on
 
-USER houston
+USER root
 WORKDIR /data
 # HOUSTON_NO_PARENT_WATCHDOG=1: no supervisor owns our stdin in a container,
 # so disable the parent-watchdog that would otherwise see /dev/null EOF and
@@ -109,7 +114,7 @@ ENV HOME=/data \
     HOUSTON_BIND=0.0.0.0:7777 \
     HOUSTON_BIND_ALL=1 \
     HOUSTON_NO_PARENT_WATCHDOG=1 \
-    PATH=/opt/houston/.local/bin:/opt/houston/.composio:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    PATH=/opt/houston/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 EXPOSE 7777
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

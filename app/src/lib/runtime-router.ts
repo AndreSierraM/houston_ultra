@@ -7,21 +7,19 @@ import { getEngine, getEngineWs } from "./engine";
 import {
   cloudEngineBaseUrl,
   cloudEngineWsUrl,
-  type AgentRuntimeMode,
 } from "./cloud-client";
 import type { Agent } from "./types";
+import { CloudAgentWsRegistry } from "./cloud-agent-ws-registry";
+import { isCloudAgent } from "./agent-runtime-mode";
 
-let cloudWsAgentId: string | null = null;
-let cloudWs: EngineWebSocket | null = null;
+export { agentRuntime, isCloudAgent } from "./agent-runtime-mode";
 
-export function agentRuntime(agent: Agent): AgentRuntimeMode {
-  if (agent.runtime === "cloud_24_7") return "cloud_24_7";
-  if (agent.folderPath.startsWith("cloud://")) return "cloud_24_7";
-  return "local";
-}
+const DEFAULT_CLOUD_WS = import.meta.env.DEV ? 128 : 4;
+const cloudWsRegistry = new CloudAgentWsRegistry<EngineWebSocket>(DEFAULT_CLOUD_WS);
 
-export function isCloudAgent(agent: Agent): boolean {
-  return agentRuntime(agent) === "cloud_24_7";
+/** Dev cloud debug burst: raise proxied WS pool before spawning many agents. */
+export function setCloudDebugWsCap(max: number): void {
+  cloudWsRegistry.setMaxSize(max);
 }
 
 export async function getAgentEngineClient(agent: Agent): Promise<HoustonClient> {
@@ -52,16 +50,25 @@ async function cloudSessionToken(): Promise<string> {
   return cloudBearerToken();
 }
 
-/** Drop the proxied cloud WS (e.g. when switching back to a local agent). */
-export function disconnectCloudEngineWs(): void {
-  if (!cloudWs) return;
-  try {
-    cloudWs.disconnect();
-  } catch {
-    /* ignore */
+/** Drop proxied cloud WS for one agent, or all when agentId is omitted. */
+export function disconnectCloudEngineWs(agentId?: string): void {
+  if (agentId) {
+    const ws = cloudWsRegistry.remove(agentId);
+    if (!ws) return;
+    try {
+      ws.disconnect();
+    } catch {
+      /* ignore */
+    }
+    return;
   }
-  cloudWs = null;
-  cloudWsAgentId = null;
+  for (const ws of cloudWsRegistry.clear()) {
+    try {
+      ws.disconnect();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 /** Shared WS for an agent. Local agents reuse the engine singleton. */
@@ -69,29 +76,47 @@ export function getAgentEngineWs(agent: Agent): EngineWebSocket {
   if (!isCloudAgent(agent)) {
     return getEngineWs();
   }
-  if (cloudWs && cloudWsAgentId === agent.id) {
-    return cloudWs;
+  const ws = cloudWsRegistry.get(agent.id);
+  if (ws) {
+    return ws;
   }
   throw new Error(
     `[runtime-router] cloud WebSocket for ${agent.id} is not connected yet`,
   );
 }
 
-/** Connect (or reuse) the cloud WS for this agent. Disconnects prior cloud WS on switch. */
+/** Connect (or reuse) the cloud WS for this agent without disconnecting others. */
 export async function ensureAgentEngineWs(agent: Agent): Promise<EngineWebSocket> {
   if (!isCloudAgent(agent)) {
     return getEngineWs();
   }
-  if (cloudWs && cloudWsAgentId === agent.id) {
-    return cloudWs;
+  const existing = cloudWsRegistry.get(agent.id);
+  if (existing) {
+    return existing;
   }
-  disconnectCloudEngineWs();
+  cloudWsRegistry.evictOldestIfNeeded((ws) => {
+    try {
+      ws.disconnect();
+    } catch {
+      /* ignore */
+    }
+  });
   const token = await cloudSessionToken();
   const wsUrl = `${getAgentEngineWsUrl(agent)}?token=${encodeURIComponent(token)}`;
   const wsClient = { wsUrl: () => wsUrl };
   const ws = new EngineWebSocket(wsClient as HoustonClient);
   ws.connect();
-  cloudWs = ws;
-  cloudWsAgentId = agent.id;
+  cloudWsRegistry.set(agent.id, ws);
   return ws;
+}
+
+/** Dev-only snapshot of proxied cloud WebSocket slots. */
+export function cloudWsDebugSnapshot(): {
+  maxSlots: number;
+  connectedAgentIds: string[];
+} {
+  return {
+    maxSlots: cloudWsRegistry.maxSlots(),
+    connectedAgentIds: cloudWsRegistry.agentIds(),
+  };
 }

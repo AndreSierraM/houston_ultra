@@ -60,6 +60,26 @@ impl DockerRuntime {
         rand::thread_rng().fill_bytes(&mut bytes);
         bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
+
+    /// Maps Docker container state to Houston runtime status.
+    pub(crate) fn map_docker_agent_status(raw: &str) -> String {
+        match raw.trim() {
+            "running" => "running".into(),
+            "exited" => "stopped".into(),
+            "created" | "restarting" => "provisioning".into(),
+            other => other.into(),
+        }
+    }
+
+    /// Optional override: read product prompt from host path (entrypoint baked-in file is enough).
+    fn product_prompt_env_arg() -> Option<String> {
+        let path = std::env::var("HOUSTON_CLOUD_PRODUCT_PROMPT_PATH").ok()?;
+        let content = std::fs::read_to_string(&path).ok()?;
+        if content.trim().is_empty() {
+            return None;
+        }
+        Some(format!("HOUSTON_APP_SYSTEM_PROMPT={content}"))
+    }
 }
 
 #[async_trait]
@@ -76,15 +96,41 @@ impl RuntimeBackend for DockerRuntime {
         let network = Self::network_name(org_id);
         let token = Self::random_token();
         let _ = self.docker(&["volume", "create", &volume]).await?;
-        self.docker(&[
-            "run", "-d", "--name", &container, "--restart", "unless-stopped",
-            "--network", &network, "-v", &format!("{volume}:/data"),
-            "-e", "HOME=/data", "-e", "HOUSTON_HOME=/data/.houston",
-            "-e", "HOUSTON_DOCS=/data/workspace",
-            "-e", &format!("HOUSTON_ENGINE_TOKEN={token}"),
-            "-e", "HOUSTON_BIND=0.0.0.0:7777", "-e", "HOUSTON_BIND_ALL=1",
-            "-e", "HOUSTON_NO_PARENT_WATCHDOG=1", &self.engine_image,
-        ]).await?;
+        let mut run_args: Vec<String> = vec![
+            "run".into(),
+            "-d".into(),
+            "--name".into(),
+            container.clone(),
+            "--restart".into(),
+            "unless-stopped".into(),
+            "--network".into(),
+            network.clone(),
+            "-v".into(),
+            format!("{volume}:/data"),
+            "-e".into(),
+            "HOME=/data".into(),
+            "-e".into(),
+            "HOUSTON_HOME=/data/.houston".into(),
+            "-e".into(),
+            "HOUSTON_DOCS=/data/workspace".into(),
+            "-e".into(),
+            format!("HOUSTON_ENGINE_TOKEN={token}"),
+            "-e".into(),
+            "HOUSTON_BIND=0.0.0.0:7777".into(),
+            "-e".into(),
+            "HOUSTON_BIND_ALL=1".into(),
+            "-e".into(),
+            "HOUSTON_NO_PARENT_WATCHDOG=1".into(),
+            "-e".into(),
+            "HOUSTON_TUNNEL_URL=http://127.0.0.1:1".into(),
+        ];
+        if let Some(prompt_env) = Self::product_prompt_env_arg() {
+            run_args.push("-e".into());
+            run_args.push(prompt_env);
+        }
+        run_args.push(self.engine_image.clone());
+        let run_refs: Vec<&str> = run_args.iter().map(String::as_str).collect();
+        self.docker(&run_refs).await?;
         let internal_url = format!("http://{container}:7777");
         let folder_path = match engine_provision::bootstrap_engine_agent(
             &internal_url,
@@ -117,6 +163,18 @@ impl RuntimeBackend for DockerRuntime {
         Ok(())
     }
 
+    async fn stop(&self, agent_id: Uuid) -> anyhow::Result<()> {
+        let container = Self::container_name(agent_id);
+        self.docker(&["stop", &container]).await?;
+        Ok(())
+    }
+
+    async fn start(&self, agent_id: Uuid) -> anyhow::Result<()> {
+        let container = Self::container_name(agent_id);
+        self.docker(&["start", &container]).await?;
+        Ok(())
+    }
+
     async fn remove(&self, agent_id: Uuid) -> anyhow::Result<()> {
         let container = Self::container_name(agent_id);
         let volume = Self::volume_name(agent_id);
@@ -137,6 +195,21 @@ impl RuntimeBackend for DockerRuntime {
         let state = self
             .docker(&["inspect", "-f", "{{.State.Status}}", &container])
             .await?;
-        Ok(state)
+        Ok(Self::map_docker_agent_status(&state))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DockerRuntime;
+
+    #[test]
+    fn map_docker_agent_status_normalizes_states() {
+        assert_eq!(DockerRuntime::map_docker_agent_status("running"), "running");
+        assert_eq!(DockerRuntime::map_docker_agent_status("exited"), "stopped");
+        assert_eq!(
+            DockerRuntime::map_docker_agent_status("restarting"),
+            "provisioning"
+        );
     }
 }

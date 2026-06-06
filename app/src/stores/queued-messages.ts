@@ -58,7 +58,8 @@ export const useQueuedMessageStore = create<QueuedMessageState>((set, get) => ({
 
   takeAll: (agentPath, sessionKey) => {
     const key = getSessionStatusKey(agentPath, sessionKey);
-    const items = get().queues[key] ?? [];
+    const items = get().queues[key] ?? EMPTY_QUEUE;
+    if (items.length === 0) return items;
     set((state) => {
       const { [key]: _removed, ...rest } = state.queues;
       return { queues: rest };

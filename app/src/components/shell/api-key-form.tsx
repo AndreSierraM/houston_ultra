@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ExternalLink, Eye, EyeOff } from "lucide-react";
 import { Button, Spinner } from "@houston-ai/core";
-import { saveProviderApiKey } from "../../lib/provider-api-key";
+import { saveProviderApiKey, type ProviderCredentialSaveTarget } from "../../lib/provider-api-key";
 import { tauriSystem } from "../../lib/tauri";
 import { useUIStore } from "../../stores/ui";
 import { analytics } from "../../lib/analytics";
@@ -13,6 +13,8 @@ export function ApiKeyForm(props: {
   apiKeyConsoleUrl: string;
   /** When false, shows the form but save stays disabled until backend lands. */
   saveEnabled?: boolean;
+  /** Where to persist the key. Default `local` (Settings). Cloud reconnect uses `activeAgent`. */
+  credentialTarget?: ProviderCredentialSaveTarget;
   onSaved: () => void;
 }) {
   const { t } = useTranslation("providers");
@@ -47,7 +49,7 @@ export function ApiKeyForm(props: {
     setError(null);
     setSaving(true);
     try {
-      await saveProviderApiKey(props.providerId, trimmed);
+      await saveProviderApiKey(props.providerId, trimmed, props.credentialTarget ?? "local");
       analytics.track("provider_configured", { provider: props.providerId });
       props.onSaved();
     } catch (err) {

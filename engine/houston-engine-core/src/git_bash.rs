@@ -37,11 +37,13 @@
 /// 7z file-format magic. Always at the start of a valid 7z archive —
 /// appears in the SFX after the PE stub. Public to the module so the
 /// cross-platform unit tests below can reference it.
+#[cfg(any(test, target_os = "windows"))]
 const SEVENZ_MAGIC: &[u8] = &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
 
 /// Maximum bytes to scan for the 7z magic. PortableGit's SFX stub is
 /// consistently ~245 KB; 2 MB is generous headroom for future SFX
 /// builds without slurping the whole 57 MB file.
+#[cfg(any(test, target_os = "windows"))]
 const MAGIC_SCAN_LIMIT: usize = 2 * 1024 * 1024;
 
 /// Scan a file for the 7z file-format magic and return its byte
@@ -52,6 +54,7 @@ const MAGIC_SCAN_LIMIT: usize = 2 * 1024 * 1024;
 /// Kept outside the Windows-only `imp` module so it can be unit-
 /// tested on any host. The full extraction path (which needs
 /// `sevenz-rust2`) stays Windows-only.
+#[cfg(any(test, target_os = "windows"))]
 fn find_magic_offset(path: &std::path::Path) -> std::io::Result<Option<u64>> {
     use std::io::Read;
     let mut f = std::fs::File::open(path)?;
@@ -73,6 +76,7 @@ fn find_magic_offset(path: &std::path::Path) -> std::io::Result<Option<u64>> {
 ///
 /// Kept outside `imp` for the same cross-platform test reason as
 /// `find_magic_offset`.
+#[cfg(any(test, target_os = "windows"))]
 fn sanitize_entry_path(name: &str) -> Option<std::path::PathBuf> {
     use std::path::{Component, Path, PathBuf};
     let p = Path::new(name);

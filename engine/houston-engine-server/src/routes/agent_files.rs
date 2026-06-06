@@ -43,53 +43,70 @@ pub fn router() -> Router<Arc<ServerState>> {
 
 #[derive(Deserialize)]
 pub struct AgentPathBody {
+    #[serde(alias = "agentPath")]
     pub agent_path: String,
 }
 
 #[derive(Deserialize)]
 pub struct AgentRelBody {
+    #[serde(alias = "agentPath")]
     pub agent_path: String,
+    #[serde(alias = "relPath")]
     pub rel_path: String,
 }
 
 #[derive(Deserialize)]
 pub struct WriteBody {
+    #[serde(alias = "agentPath")]
     pub agent_path: String,
+    #[serde(alias = "relPath")]
     pub rel_path: String,
     pub content: String,
 }
 
 #[derive(Deserialize)]
 pub struct RenameBody {
+    #[serde(alias = "agentPath")]
     pub agent_path: String,
+    #[serde(alias = "relPath")]
     pub rel_path: String,
+    #[serde(alias = "newName")]
     pub new_name: String,
 }
 
 #[derive(Deserialize)]
 pub struct CreateFolderBody {
+    #[serde(alias = "agentPath")]
     pub agent_path: String,
+    #[serde(alias = "folderName")]
     pub folder_name: String,
 }
 
 #[derive(Deserialize)]
 pub struct ImportBody {
+    #[serde(alias = "agentPath")]
     pub agent_path: String,
+    #[serde(alias = "filePaths")]
     pub file_paths: Vec<String>,
-    #[serde(default)]
+    #[serde(default, alias = "targetFolder")]
     pub target_folder: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct ImportBytesBody {
+    #[serde(alias = "agentPath")]
     pub agent_path: String,
+    #[serde(alias = "fileName")]
     pub file_name: String,
+    #[serde(alias = "dataBase64")]
     pub data_base64: String,
 }
 
 #[derive(Deserialize)]
 pub struct DeleteFileQuery {
+    #[serde(alias = "agentPath")]
     pub agent_path: String,
+    #[serde(alias = "relPath")]
     pub rel_path: String,
 }
 

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   getEffortLevels,
+  modelSupportsAgenticTools,
   validEffortOrDefault,
   validModelOrNull,
   normalizeLegacyModel,
@@ -42,7 +43,7 @@ test("effort levels are per model", () => {
 });
 
 test("effort levels empty for unknown / effort-less models", () => {
-  assert.deepEqual(getEffortLevels("gemini", "gemini-2.5-pro"), []);
+  assert.deepEqual(getEffortLevels("openrouter", "anthropic/claude-sonnet-4"), []);
   assert.deepEqual(getEffortLevels(null, null), []);
   assert.deepEqual(getEffortLevels("anthropic", "no-such-model"), []);
   // Legacy CLI aliases were retired in favor of explicit version IDs; the
@@ -71,7 +72,10 @@ test("validEffortOrDefault falls back to default when unset or garbage", () => {
 });
 
 test("validEffortOrDefault is undefined for models without effort control", () => {
-  assert.equal(validEffortOrDefault("gemini", "gemini-2.5-pro", "high"), undefined);
+  assert.equal(
+    validEffortOrDefault("openrouter", "anthropic/claude-sonnet-4", "high"),
+    undefined,
+  );
 });
 
 test("validModelOrNull rejects retired aliases and accepts catalog IDs", () => {
@@ -96,6 +100,23 @@ test("normalizeLegacyModel maps retired aliases, passes everything else through"
   assert.equal(normalizeLegacyModel("constructor"), "constructor");
   assert.equal(normalizeLegacyModel("__proto__"), "__proto__");
   assert.equal(normalizeLegacyModel("toString"), "toString");
+});
+
+test("modelSupportsAgenticTools flags chat-only OpenRouter models", () => {
+  assert.equal(
+    modelSupportsAgenticTools("openrouter", "anthropic/claude-sonnet-4"),
+    true,
+  );
+  assert.equal(modelSupportsAgenticTools("openrouter", "openai/gpt-4.1"), true);
+  assert.equal(
+    modelSupportsAgenticTools("openrouter", "deepseek/deepseek-chat-v3-0324"),
+    false,
+  );
+  assert.equal(
+    modelSupportsAgenticTools("openrouter", "meta-llama/llama-4-maverick"),
+    false,
+  );
+  assert.equal(modelSupportsAgenticTools("anthropic", "claude-sonnet-4-6"), true);
 });
 
 test("normalized legacy model resolves through validModelOrNull (no Opus->Sonnet downgrade)", () => {

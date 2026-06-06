@@ -186,6 +186,11 @@ async fn create_agent(
     Ok(created.agent.folder_path)
 }
 
+/// Agent instruction filenames written from bootstrap `claude_md` (Codex reads AGENTS.md).
+pub fn agent_instruction_filenames() -> [&'static str; 2] {
+    ["CLAUDE.md", "AGENTS.md"]
+}
+
 async fn apply_bootstrap_bundle(
     client: &reqwest::Client,
     base: &str,
@@ -194,7 +199,9 @@ async fn apply_bootstrap_bundle(
     config: &ResolvedBootstrap,
 ) -> anyhow::Result<()> {
     if let Some(content) = config.claude_md.as_deref() {
-        write_agent_file(client, base, token, agent_path, "CLAUDE.md", content).await?;
+        for rel_path in agent_instruction_filenames() {
+            write_agent_file(client, base, token, agent_path, rel_path, content).await?;
+        }
     }
     for seed in &config.seeds {
         write_agent_file(client, base, token, agent_path, &seed.rel_path, &seed.content)
@@ -219,7 +226,6 @@ async fn write_agent_file(
     content: &str,
 ) -> anyhow::Result<()> {
     #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
     struct WriteBody<'a> {
         agent_path: &'a str,
         rel_path: &'a str,
@@ -312,7 +318,6 @@ async fn seed_schemas_and_migrate(
     agent_path: &str,
 ) -> anyhow::Result<()> {
     #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
     struct AgentPathBody<'a> {
         agent_path: &'a str,
     }
@@ -354,6 +359,26 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn write_body_uses_snake_case_for_engine() {
+        #[derive(serde::Serialize)]
+        struct WriteBody<'a> {
+            agent_path: &'a str,
+            rel_path: &'a str,
+            content: &'a str,
+        }
+        let body = WriteBody {
+            agent_path: "/data/agents/test",
+            rel_path: "CLAUDE.md",
+            content: "# hi",
+        };
+        let json = serde_json::to_value(body).unwrap();
+        assert_eq!(json["agent_path"], "/data/agents/test");
+        assert_eq!(json["rel_path"], "CLAUDE.md");
+        assert!(json.get("agentPath").is_none());
+        assert!(json.get("relPath").is_none());
+    }
+
+    #[test]
     fn patch_config_sets_provider_model_and_effort() {
         let out = patch_config(
             json!({ "name": "alpha" }),
@@ -364,6 +389,12 @@ mod tests {
         assert_eq!(out["provider"], "anthropic");
         assert_eq!(out["model"], "sonnet");
         assert_eq!(out["effort"], "high");
+    }
+
+    #[test]
+    fn agent_instruction_filenames_includes_claude_and_agents_md() {
+        let files = super::agent_instruction_filenames();
+        assert_eq!(files, ["CLAUDE.md", "AGENTS.md"]);
     }
 
     #[test]

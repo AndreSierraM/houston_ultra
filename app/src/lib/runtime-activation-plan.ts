@@ -1,8 +1,5 @@
+import { isCloudAgent } from "./agent-runtime-mode.ts";
 import type { Agent } from "./types";
-
-function isCloudRuntime(agent: Agent): boolean {
-  return agent.runtime === "cloud_24_7";
-}
 
 /** Which harness steps apply when selecting an agent (regression-tested). */
 export function runtimeActivationPlan(agent: Agent): {
@@ -11,7 +8,7 @@ export function runtimeActivationPlan(agent: Agent): {
   connectCloudWs: boolean;
   disconnectCloudWs: boolean;
 } {
-  const cloud = isCloudRuntime(agent);
+  const cloud = isCloudAgent(agent);
   return {
     cloud,
     // Sidecar engine keeps one watcher — always clear before repointing.
@@ -28,7 +25,7 @@ export function runtimeDeactivationPlan(agent: Agent): {
   stopLocalWatcher: boolean;
 } {
   return {
-    disconnectCloudWs: isCloudRuntime(agent),
-    stopLocalWatcher: !isCloudRuntime(agent),
+    disconnectCloudWs: isCloudAgent(agent),
+    stopLocalWatcher: !isCloudAgent(agent),
   };
 }

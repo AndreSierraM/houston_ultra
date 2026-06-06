@@ -23,6 +23,7 @@
   },
   "errors": {
     "sessionStart": "No se pudo iniciar la sesión: {{error}}",
+    "sessionMissing": "No se pudo enviar el mensaje. Esta conversación ya no está disponible.",
     "modelPersistFailed": "No se pudo guardar la preferencia de modelo"
   },
   "toolRuntimeError": {
@@ -60,6 +61,7 @@
   "modelSelector": {
     "selectModel": "Elige un modelo",
     "model": "Modelo",
+    "chatOnly": "Solo chat",
     "notConnected": "Sin conexión",
     "checking": "Verificando...",
     "effort": "Esfuerzo de razonamiento",

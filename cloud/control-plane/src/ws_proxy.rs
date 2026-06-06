@@ -6,6 +6,7 @@ use crate::auth::Principal;
 use crate::db::Db;
 use crate::entitlements;
 use crate::error::{ApiError, ApiResult};
+use crate::runtime_wake;
 use axum::{
     extract::{
         ws::{Message, WebSocket},
@@ -16,6 +17,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use uuid::Uuid;
 
 #[derive(sqlx::FromRow)]
@@ -32,6 +34,7 @@ pub async fn proxy_ws(
 ) -> ApiResult<Response> {
     agents::assert_agent_access(&state.db, &principal, agent_id, "operator").await?;
     entitlements::assert_active(&state.db, &principal).await?;
+    runtime_wake::ensure_agent_awake(&state.db, state.runtime.as_ref(), agent_id).await?;
     let runtime = load_runtime(&state.db, agent_id).await?;
     let engine_url = format!(
         "{}/v1/ws",
@@ -61,11 +64,17 @@ pub async fn proxy_ws(
 }
 
 async fn bridge(client: WebSocket, engine_url: &str, token: &str) -> anyhow::Result<()> {
-    let req = tokio_tungstenite::tungstenite::http::Request::builder()
-        .uri(engine_url)
-        .header("Authorization", format!("Bearer {token}"))
-        .header("Sec-WebSocket-Protocol", format!("houston-bearer.{token}"))
-        .body(())?;
+    // `into_client_request` generates the mandatory handshake headers
+    // (Sec-WebSocket-Key, Upgrade, Connection, Version, Host). Building a bare
+    // `Request` by hand omits them and tungstenite rejects the handshake.
+    //
+    // Auth rides the `Authorization` header (engine reads it first). We do NOT
+    // request a `Sec-WebSocket-Protocol`: the engine upgrade doesn't echo one,
+    // and an unconfirmed requested subprotocol makes tungstenite fail the
+    // handshake with "Server sent no subprotocol".
+    let mut req = engine_url.into_client_request()?;
+    req.headers_mut()
+        .insert("Authorization", format!("Bearer {token}").parse()?);
     let (engine, _) = connect_async(req).await?;
     let (mut engine_tx, mut engine_rx) = engine.split();
     let (mut client_tx, mut client_rx) = client.split();

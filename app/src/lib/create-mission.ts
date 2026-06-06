@@ -8,6 +8,7 @@ import { tauriActivity, tauriChat } from "./tauri";
 import { logger } from "./logger";
 import { analytics } from "./analytics";
 import { fallbackMissionTitle, refreshMissionTitle } from "./mission-title";
+import type { Agent } from "./types";
 
 /** Build a session key for a given activity id. */
 function sessionKeyForActivity(activityId: string): string {
@@ -63,6 +64,7 @@ export interface CreateMissionOptions {
    * user-visible description stored on the activity row.
    */
   buildPrompt?: (activityId: string) => Promise<string> | string;
+  routeAgent?: Agent;
   /** Prompt-file override forwarded to tauriChat.send (agent mode). */
   promptFile?: string;
   /** Provider override forwarded to tauriChat.send. */
@@ -127,6 +129,7 @@ export async function createMission(
       providerOverride: opts.providerOverride,
       modelOverride: opts.modelOverride,
       effortOverride: opts.effortOverride,
+      agent: opts.routeAgent,
     });
 
     analytics.track("mission_created", { agent_mode: opts.agentMode });

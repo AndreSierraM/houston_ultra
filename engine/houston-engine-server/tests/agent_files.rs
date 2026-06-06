@@ -89,6 +89,29 @@ async fn write_then_read_round_trip() {
 }
 
 #[tokio::test]
+async fn write_accepts_camel_case_json() {
+    let (addr, tok, agent_path, _docs) = spawn_with_agent().await;
+    let c = reqwest::Client::new();
+
+    let res = c
+        .post(format!("http://{addr}/v1/agents/files/write"))
+        .bearer_auth(&tok)
+        .json(&serde_json::json!({
+            "agentPath": agent_path,
+            "relPath": ".houston/activity/activity.json",
+            "content": "[]"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        res.status().is_success(),
+        "camelCase body should deserialize: {}",
+        res.status()
+    );
+}
+
+#[tokio::test]
 async fn write_traversal_rejected_400() {
     let (addr, tok, agent_path, _docs) = spawn_with_agent().await;
     let c = reqwest::Client::new();

@@ -13,9 +13,6 @@ pub mod credentials;
 mod provider_env_store;
 mod anthropic_credentials;
 mod anthropic_disconnect;
-mod gemini_credentials;
-mod gemini_disconnect;
-mod gemini_login;
 mod login_relay;
 mod openai_credentials;
 mod openai_disconnect;
@@ -24,8 +21,6 @@ mod openrouter_disconnect;
 
 pub use anthropic_credentials::{read_anthropic_api_key, set_anthropic_api_key};
 pub use anthropic_disconnect::disconnect_anthropic;
-pub use gemini_credentials::{read_gemini_api_key, set_gemini_api_key};
-pub use gemini_disconnect::disconnect_gemini;
 pub use openai_credentials::{
     codex_oauth_tokens_present, read_openai_api_key, set_openai_api_key,
 };
@@ -123,23 +118,6 @@ pub async fn launch_login(
     sink: DynEventSink,
     device_auth: bool,
 ) -> CoreResult<()> {
-    // Gemini has no `gemini auth login` subcommand. Instead, gemini-cli
-    // exposes an `authenticate` JSON-RPC method over its `--acp` mode
-    // (Agent Communication Protocol) that triggers Google's OAuth flow
-    // via the user's browser, using gemini-cli's own app identity. We
-    // delegate there rather than spawning gemini with positional args.
-    // See `gemini_login.rs` for the protocol details + rationale.
-    if provider.id() == "gemini" {
-        let (_, gemini_path) = provider.resolve();
-        let path = gemini_path.ok_or_else(|| {
-            CoreError::BadRequest(
-                "Gemini CLI binary not found. Reinstall Houston to restore the bundled CLI."
-                    .into(),
-            )
-        })?;
-        return gemini_login::launch_login(path).await;
-    }
-
     let ProviderCliCommand {
         cli_name,
         path,
@@ -299,16 +277,6 @@ pub async fn launch_login(
 /// then deletes the local credential file. We await it so the UI can
 /// flip the card to disconnected as soon as it's actually done.
 pub async fn launch_logout(provider: Provider) -> CoreResult<()> {
-    // Gemini has no CLI logout subcommand. The interactive `/auth logout`
-    // slash command added in gemini-cli PR #13383 strips internal
-    // "thoughts" from conversation history as a side effect, which
-    // Houston must NOT do — sessions are user data. Clear the same
-    // credential files that command clears, directly from the engine.
-    // See `gemini_disconnect` for the full set of files touched (and
-    // not touched).
-    if provider.id() == "gemini" {
-        return disconnect_gemini().await;
-    }
     if provider.id() == "openrouter" {
         return disconnect_openrouter().await;
     }

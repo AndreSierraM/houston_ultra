@@ -26,7 +26,7 @@ import {
  *      depth — survives engine restarts mid-OAuth and covers the
  *      brief window before the engine watch is registered.
  */
-export function useComposioRefetchOnReturn(): (slug: string) => void {
+export function useComposioRefetchOnReturn(agentPath?: string): (slug: string) => void {
   const qc = useQueryClient();
   const pollersRef = useRef<Map<string, number>>(new Map());
   const waitingRef = useRef<Set<string>>(new Set());
@@ -34,7 +34,7 @@ export function useComposioRefetchOnReturn(): (slug: string) => void {
   useEffect(() => {
     const handleRefocus = () => {
       if (waitingRef.current.size === 0) return;
-      qc.invalidateQueries({ queryKey: queryKeys.connectedToolkits() });
+      qc.invalidateQueries({ queryKey: queryKeys.connectedToolkits(agentPath) });
     };
     window.addEventListener("focus", handleRefocus);
     document.addEventListener("visibilitychange", handleRefocus);
@@ -42,7 +42,7 @@ export function useComposioRefetchOnReturn(): (slug: string) => void {
       window.removeEventListener("focus", handleRefocus);
       document.removeEventListener("visibilitychange", handleRefocus);
     };
-  }, [qc]);
+  }, [agentPath, qc]);
 
   useEffect(() => {
     const pollers = pollersRef.current;
@@ -64,7 +64,7 @@ export function useComposioRefetchOnReturn(): (slug: string) => void {
       // Idempotent server-side, so duplicate calls (chat card +
       // integrations tab racing on the same toolkit) collapse into
       // one watch.
-      void tauriConnections.watchConnection(targetSlug).catch(() => {
+      void tauriConnections.watchConnection(targetSlug, agentPath).catch(() => {
         // Engine watch is best-effort. The pull-path below covers the
         // failure case.
       });
@@ -89,12 +89,12 @@ export function useComposioRefetchOnReturn(): (slug: string) => void {
         attempts += 1;
         try {
           const connected = normalizeToolkitSlugs(
-            await tauriConnections.listConnectedToolkits(),
+            await tauriConnections.listConnectedToolkits(agentPath),
           );
           if (connected.includes(targetSlug)) {
-            qc.setQueryData(queryKeys.connectedToolkits(), connected);
+            qc.setQueryData(queryKeys.connectedToolkits(agentPath), connected);
             await qc.invalidateQueries({
-              queryKey: queryKeys.connectedToolkits(),
+              queryKey: queryKeys.connectedToolkits(agentPath),
             });
             stop();
             return;
@@ -113,6 +113,6 @@ export function useComposioRefetchOnReturn(): (slug: string) => void {
       pollersRef.current.set(targetSlug, handle);
       void tick();
     },
-    [qc],
+    [agentPath, qc],
   );
 }

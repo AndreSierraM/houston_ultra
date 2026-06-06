@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 mod bundled;
 pub(crate) use bundled::copy_dir_all;
+pub(crate) use bundled::bundled_agent_template_path;
 use bundled::{bundled_catalog, install_bundled_agent};
 
 const STORE_API_DEFAULT: &str = "https://store.gethouston.ai/api";

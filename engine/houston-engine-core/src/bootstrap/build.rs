@@ -7,7 +7,7 @@ use houston_engine_protocol::{
 };
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::seeds::{filter_seeds, gather_migration_seeds, seeds_from_manifest};
 use super::skills::read_packaged_skills;
@@ -22,11 +22,15 @@ pub fn build_bootstrap_bundle(req: BuildBootstrapBundleRequest) -> CoreResult<Ag
     build_from_template(&req)
 }
 
+fn resolve_template_root(req: &BuildBootstrapBundleRequest) -> Option<PathBuf> {
+    if let Some(p) = req.installed_path.as_ref() {
+        return Some(expand_tilde(Path::new(p)));
+    }
+    crate::store::bundled_agent_template_path(&req.config_id)
+}
+
 fn build_from_template(req: &BuildBootstrapBundleRequest) -> CoreResult<AgentBootstrapBundle> {
-    let installed = req
-        .installed_path
-        .as_ref()
-        .map(|p| expand_tilde(Path::new(p)));
+    let installed = resolve_template_root(req);
 
     let claude_md = resolve_claude_md(req.claude_md.as_deref(), installed.as_deref())?;
     let skills = match installed.as_deref() {
@@ -102,21 +106,21 @@ fn resolve_template_seeds(
     req: &BuildBootstrapBundleRequest,
     installed: Option<&Path>,
 ) -> CoreResult<HashMap<String, String>> {
-    if let Some(seeds) = req.seeds.clone() {
-        return Ok(filter_seeds(seeds));
+    let mut seeds = HashMap::new();
+    if let Some(path) = installed {
+        let manifest_path = path.join("houston.json");
+        if manifest_path.exists() {
+            let body = fs::read_to_string(&manifest_path).map_err(|e| {
+                CoreError::Internal(format!("read {}: {e}", manifest_path.display()))
+            })?;
+            let manifest: serde_json::Value = serde_json::from_str(&body)?;
+            seeds = seeds_from_manifest(&manifest);
+        }
     }
-    let Some(path) = installed else {
-        return Ok(HashMap::new());
-    };
-    let manifest_path = path.join("houston.json");
-    if !manifest_path.exists() {
-        return Ok(HashMap::new());
+    if let Some(explicit) = req.seeds.clone() {
+        seeds.extend(filter_seeds(explicit));
     }
-    let body = fs::read_to_string(&manifest_path).map_err(|e| {
-        CoreError::Internal(format!("read {}: {e}", manifest_path.display()))
-    })?;
-    let manifest: serde_json::Value = serde_json::from_str(&body)?;
-    Ok(seeds_from_manifest(&manifest))
+    Ok(seeds)
 }
 
 fn resolve_claude_md(

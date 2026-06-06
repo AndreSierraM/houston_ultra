@@ -6,6 +6,8 @@
 //! writes files with owner-only permissions, and probes provider status.
 
 mod allowlist;
+mod anthropic_keychain;
+mod composio_keyring;
 mod bundle;
 mod crypto;
 mod session;
@@ -141,10 +143,43 @@ async fn read_allowlisted_files(
 ) -> CoreResult<Vec<CredentialFileEntry>> {
     let mut files = Vec::new();
     for rel in provider.allowed_rel_paths() {
+        if provider == CredentialProvider::Composio
+            && *rel == composio_keyring::user_data_rel_path()
+        {
+            if let Some(b) = composio_keyring::export_user_data_bytes() {
+                let content = String::from_utf8(b.clone()).map_err(|e| {
+                    CoreError::BadRequest(format!("composio user_data.json must be UTF-8: {e}"))
+                })?;
+                allowlist::validate_composio_user_data(&content)?;
+                files.push(CredentialFileEntry {
+                    rel_path: rel.to_string(),
+                    mode: provider.default_file_mode(rel),
+                    contents: base64::engine::general_purpose::STANDARD.encode(&b),
+                });
+                continue;
+            }
+        }
         let path = allowlist::home_join(rel)?;
         let bytes = match tokio::fs::read(&path).await {
             Ok(b) => b,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if provider == CredentialProvider::Anthropic
+                    && *rel == anthropic_keychain::credentials_rel_path()
+                {
+                    if let Some(b) = anthropic_keychain::claude_oauth_credentials_bytes() {
+                        files.push(CredentialFileEntry {
+                            rel_path: rel.to_string(),
+                            mode: provider.default_file_mode(rel),
+                            contents: base64::engine::general_purpose::STANDARD.encode(&b),
+                        });
+                        continue;
+                    }
+                }
+                match read_legacy_fallback(provider, rel).await? {
+                    Some(b) => b,
+                    None => continue,
+                }
+            }
             Err(e) => {
                 return Err(CoreError::Internal(format!(
                     "failed to read {}: {e}",
@@ -167,6 +202,40 @@ async fn read_allowlisted_files(
     Ok(files)
 }
 
+/// Legacy Houston env paths (pre-`providers/` layout) are readable for status
+/// probes but not on the export allowlist. When only legacy exists, export it
+/// under the canonical allowlisted rel path so cloud import writes the new shape.
+async fn read_legacy_fallback(
+    provider: CredentialProvider,
+    canonical_rel: &str,
+) -> CoreResult<Option<Vec<u8>>> {
+    if !canonical_rel.ends_with("/.env") {
+        return Ok(None);
+    }
+    let legacy_rel = match provider {
+        CredentialProvider::OpenRouter if canonical_rel == ".houston/providers/openrouter/.env" => {
+            ".houston/openrouter/.env"
+        }
+        CredentialProvider::OpenAi if canonical_rel == ".houston/providers/openai/.env" => {
+            ".houston/openai/.env"
+        }
+        CredentialProvider::Anthropic if canonical_rel == ".houston/providers/anthropic/.env" => {
+            ".houston/anthropic/.env"
+        }
+        _ => return Ok(None),
+    };
+    let legacy_path = allowlist::home_join(legacy_rel)?;
+    match tokio::fs::read(&legacy_path).await {
+        Ok(b) if !b.is_empty() => Ok(Some(b)),
+        Ok(_) => Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(CoreError::Internal(format!(
+            "failed to read legacy {}: {e}",
+            legacy_path.display()
+        ))),
+    }
+}
+
 async fn write_bundle_files(
     provider: CredentialProvider,
     bundle: &ProviderCredentialBundle,
@@ -184,7 +253,7 @@ async fn write_bundle_files(
     Ok(written)
 }
 
-async fn write_file_with_mode(path: &Path, bytes: &[u8], mode: u32) -> CoreResult<()> {
+async fn write_file_with_mode(path: &Path, bytes: &[u8], _mode: u32) -> CoreResult<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await.map_err(|e| {
             CoreError::Internal(format!("failed to create {}: {e}", parent.display()))
@@ -232,12 +301,67 @@ mod tests {
         let _guard = HOME_TEST_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let prior = std::env::var_os("HOME");
+        // Pin the Houston data root to `$HOME/.houston` so it matches the
+        // `home.join(".houston/...")` paths these tests write. Without this,
+        // `houston_data_root()` resolves to `$HOME/.dev-houston` under
+        // `debug_assertions` and the `.houston/`-prefixed export paths miss.
+        let prior_houston = std::env::var_os("HOUSTON_HOME");
         std::env::set_var("HOME", tmp.path());
+        std::env::set_var("HOUSTON_HOME", tmp.path().join(".houston"));
         f.await;
         match prior {
             Some(v) => std::env::set_var("HOME", v),
             None => std::env::remove_var("HOME"),
         }
+        match prior_houston {
+            Some(v) => std::env::set_var("HOUSTON_HOME", v),
+            None => std::env::remove_var("HOUSTON_HOME"),
+        }
+    }
+
+    #[tokio::test]
+    async fn export_import_round_trip_anthropic() {
+        session::reset_sessions_for_test();
+        with_home(async {
+            let home = dirs::home_dir().unwrap();
+            let creds_path = home.join(".claude/.credentials.json");
+            std::fs::create_dir_all(creds_path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &creds_path,
+                r#"{"claudeAiOauth":{"accessToken":"sk-ant-oat01-export","refreshToken":"r","expiresAt":1}}"#,
+            )
+            .unwrap();
+
+            let session = start_import_session("anthropic").unwrap();
+            let export = export_credentials(
+                "anthropic",
+                &CredentialExportRequest {
+                    session_id: session.session_id.clone(),
+                    public_key: session.public_key.clone(),
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(export.provider, "anthropic");
+
+            std::fs::remove_file(&creds_path).unwrap();
+            assert!(!creds_path.exists());
+
+            let sink = std::sync::Arc::new(houston_ui_events::NoopEventSink);
+            let import = import_credentials(
+                "anthropic",
+                &CredentialImportRequest {
+                    session_id: session.session_id,
+                    ciphertext: export.ciphertext,
+                },
+                sink,
+            )
+            .await
+            .unwrap();
+            assert_eq!(import.files_written, 1);
+            assert!(creds_path.exists());
+        })
+        .await;
     }
 
     #[tokio::test]
@@ -277,6 +401,78 @@ mod tests {
             .unwrap();
             assert_eq!(import.files_written, 1);
             assert!(auth_path.exists());
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn export_reads_openrouter_legacy_env_path() {
+        session::reset_sessions_for_test();
+        with_home(async {
+            let home = dirs::home_dir().unwrap();
+            let legacy = home.join(".houston/openrouter/.env");
+            std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+            std::fs::write(&legacy, "OPENROUTER_API_KEY=sk-or-v1-testkey1234567890\n").unwrap();
+
+            let session = start_import_session("openrouter").unwrap();
+            let export = export_credentials(
+                "openrouter",
+                &CredentialExportRequest {
+                    session_id: session.session_id.clone(),
+                    public_key: session.public_key.clone(),
+                },
+            )
+            .await
+            .unwrap();
+
+            let secret = session::take_import_session(&session.session_id, CredentialProvider::OpenRouter).unwrap();
+            let plaintext = crypto::decrypt_from_sender(&secret, &session.session_id, &export.ciphertext).unwrap();
+            let bundle: ProviderCredentialBundle = serde_json::from_slice(&plaintext).unwrap();
+            assert_eq!(bundle.files.len(), 1);
+            assert_eq!(
+                bundle.files[0].rel_path,
+                ".houston/providers/openrouter/.env"
+            );
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn export_reads_openrouter_from_houston_data_root() {
+        // Regression: the canonical key lives under the Houston data root
+        // (`HOUSTON_HOME` / `~/.dev-houston` in dev), not the raw home dir.
+        // Export must resolve `.houston/providers/<p>/.env` against the data
+        // root or cloud credential sync fails with "no exportable credentials".
+        session::reset_sessions_for_test();
+        with_home(async {
+            let data_root = houston_terminal_manager::houston_data_root::houston_data_root();
+            let env_path = data_root.join("providers/openrouter/.env");
+            std::fs::create_dir_all(env_path.parent().unwrap()).unwrap();
+            std::fs::write(&env_path, "OPENROUTER_API_KEY=sk-or-v1-testkey1234567890\n").unwrap();
+
+            let session = start_import_session("openrouter").unwrap();
+            let export = export_credentials(
+                "openrouter",
+                &CredentialExportRequest {
+                    session_id: session.session_id.clone(),
+                    public_key: session.public_key.clone(),
+                },
+            )
+            .await
+            .unwrap();
+
+            let secret = session::take_import_session(
+                &session.session_id,
+                CredentialProvider::OpenRouter,
+            )
+            .unwrap();
+            let plaintext =
+                crypto::decrypt_from_sender(&secret, &session.session_id, &export.ciphertext)
+                    .unwrap();
+            let bundle: ProviderCredentialBundle =
+                serde_json::from_slice(&plaintext).unwrap();
+            assert_eq!(bundle.files.len(), 1);
+            assert_eq!(bundle.files[0].rel_path, ".houston/providers/openrouter/.env");
         })
         .await;
     }

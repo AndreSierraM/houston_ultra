@@ -106,6 +106,10 @@
       "rename": "Cambiar nombre",
       "reveal": "Mostrar en el Explorador de Archivos",
       "delete": "Mover a la Papelera"
-    }
+    },
+    "provisioningTitle": "Preparando almacenamiento de archivos",
+    "provisioningDescription": "Tu agente en la nube aún está iniciando. Los archivos aparecerán aquí cuando esté listo.",
+    "cloudOpenUnavailable": "Abrir archivos aún no está disponible para agentes en la nube.",
+    "loadError": "No se pudieron cargar los archivos"
   }
 }

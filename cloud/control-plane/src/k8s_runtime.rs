@@ -3,8 +3,9 @@
 use crate::auth::hash_token;
 use crate::engine_provision;
 use crate::k8s_specs::{
-    agent_deployment_name, agent_manifests, agent_pvc_name, agent_secret_name,
-    internal_service_url, namespace_manifest, org_namespace,
+    agent_deployment_name, agent_pvc_manifest, agent_pvc_name, agent_secret_name,
+    agent_workload_manifests, internal_service_url, namespace_manifest, org_namespace,
+    org_quota_manifests,
 };
 use crate::runtime::{AgentProvisionConfig, RuntimeBackend, RuntimeRow};
 use async_trait::async_trait;
@@ -16,6 +17,10 @@ use uuid::Uuid;
 
 const ENDPOINT_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const ENDPOINT_POLL_MAX: u32 = 60;
+const PVC_BOUND_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const PVC_BOUND_POLL_MAX: u32 = 120;
+const DEPLOYMENT_READY_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const DEPLOYMENT_READY_POLL_MAX: u32 = 360;
 
 #[derive(Clone)]
 pub struct K8sRuntime {
@@ -57,13 +62,20 @@ impl K8sRuntime {
         Ok(())
     }
 
-    async fn ensure_namespace(&self, org_id: Uuid) -> anyhow::Result<()> {
-        let yaml = namespace_manifest(org_id);
-        if let Err(e) = self.apply_yaml(&yaml).await {
+    async fn ensure_namespace_with_quota(
+        &self,
+        org_id: Uuid,
+        max_cloud_agents: i32,
+        max_storage_gb: i32,
+    ) -> anyhow::Result<()> {
+        let ns_yaml = namespace_manifest(org_id);
+        if let Err(e) = self.apply_yaml(&ns_yaml).await {
             if !e.to_string().contains("AlreadyExists") {
                 return Err(e);
             }
         }
+        let quota_yaml = org_quota_manifests(org_id, max_cloud_agents, max_storage_gb);
+        self.apply_yaml(&quota_yaml).await?;
         Ok(())
     }
 
@@ -92,6 +104,34 @@ impl K8sRuntime {
         }
     }
 
+    async fn deployment_namespace(&self, agent_id: Uuid) -> anyhow::Result<String> {
+        self.kubectl(&[
+            "get",
+            "deployment",
+            "-A",
+            "-l",
+            &format!("houston.ai/agent-id={agent_id}"),
+            "-o",
+            "jsonpath={.items[0].metadata.namespace}",
+        ])
+        .await
+    }
+
+    async fn scale_agent_deployment(&self, agent_id: Uuid, replicas: u32) -> anyhow::Result<()> {
+        let ns = self.deployment_namespace(agent_id).await?;
+        let deploy = agent_deployment_name(agent_id);
+        self.kubectl(&[
+            "scale",
+            "deployment",
+            &deploy,
+            "-n",
+            &ns,
+            &format!("--replicas={replicas}"),
+        ])
+        .await?;
+        Ok(())
+    }
+
     async fn wait_service_endpoints(&self, deploy: &str, ns: &str) -> anyhow::Result<()> {
         for attempt in 1..=ENDPOINT_POLL_MAX {
             match self
@@ -116,10 +156,119 @@ impl K8sRuntime {
         }
         anyhow::bail!("service {deploy} in {ns} has no endpoints after {ENDPOINT_POLL_MAX} polls");
     }
+
+    async fn wait_pvc_bound(&self, pvc: &str, ns: &str) -> anyhow::Result<()> {
+        for attempt in 1..=PVC_BOUND_POLL_MAX {
+            let phase = self
+                .kubectl(&[
+                    "get",
+                    "pvc",
+                    pvc,
+                    "-n",
+                    ns,
+                    "-o",
+                    "jsonpath={.status.phase}",
+                ])
+                .await?;
+            if phase.trim() == "Bound" {
+                return Ok(());
+            }
+            tracing::debug!(attempt, pvc, ns, phase = %phase, "pvc not bound yet");
+            tokio::time::sleep(PVC_BOUND_POLL_INTERVAL).await;
+        }
+        anyhow::bail!("pvc {pvc} in {ns} did not reach Bound within timeout");
+    }
+
+    async fn wait_deployment_ready(&self, deploy: &str, ns: &str) -> anyhow::Result<()> {
+        for attempt in 1..=DEPLOYMENT_READY_POLL_MAX {
+            let ready = self
+                .kubectl(&[
+                    "get",
+                    "deployment",
+                    deploy,
+                    "-n",
+                    ns,
+                    "-o",
+                    "jsonpath={.status.readyReplicas}",
+                ])
+                .await?;
+            if ready.trim() == "1" {
+                return Ok(());
+            }
+            let unavailable = self
+                .kubectl(&[
+                    "get",
+                    "deployment",
+                    deploy,
+                    "-n",
+                    ns,
+                    "-o",
+                    "jsonpath={.status.unavailableReplicas}",
+                ])
+                .await
+                .unwrap_or_default();
+            tracing::debug!(
+                attempt,
+                deploy,
+                ns,
+                ready = %ready,
+                unavailable = %unavailable,
+                "deployment not ready yet"
+            );
+            tokio::time::sleep(DEPLOYMENT_READY_POLL_INTERVAL).await;
+        }
+        let pod_hint = self
+            .kubectl(&[
+                "get",
+                "pods",
+                "-n",
+                ns,
+                "-l",
+                &format!("app={deploy}"),
+                "-o",
+                "jsonpath={.items[0].status.containerStatuses[0].state}",
+            ])
+            .await
+            .unwrap_or_else(|_| "unknown".into());
+        anyhow::bail!(
+            "deployment {deploy} in {ns} did not become ready within timeout (pod state: {pod_hint})"
+        );
+    }
+
+    async fn provision_agent_resources(
+        &self,
+        agent_id: Uuid,
+        org_id: Uuid,
+        engine_token: &str,
+    ) -> anyhow::Result<(String, String)> {
+        let ns = org_namespace(org_id);
+        let deploy = agent_deployment_name(agent_id);
+        let pvc = agent_pvc_name(agent_id);
+        self.apply_yaml(&agent_pvc_manifest(agent_id, org_id))
+            .await?;
+        self.wait_pvc_bound(&pvc, &ns).await?;
+        let workload =
+            agent_workload_manifests(agent_id, org_id, &self.engine_image, engine_token);
+        self.apply_yaml(&workload).await?;
+        self.wait_deployment_ready(&deploy, &ns).await?;
+        self.wait_service_endpoints(&deploy, &ns).await?;
+        Ok((deploy, ns))
+    }
 }
 
 fn service_endpoints_ready(endpoint_ip: &str) -> bool {
     !endpoint_ip.trim().is_empty()
+}
+
+/// Maps K8s deployment replica fields to Houston runtime status.
+pub(crate) fn map_k8s_agent_status(spec_replicas: &str, ready_replicas: &str) -> String {
+    if ready_replicas.trim() == "1" {
+        return "running".into();
+    }
+    if spec_replicas.trim() == "0" {
+        return "stopped".into();
+    }
+    "provisioning".into()
 }
 
 #[async_trait]
@@ -130,43 +279,27 @@ impl RuntimeBackend for K8sRuntime {
         org_id: Uuid,
         agent: &AgentProvisionConfig,
     ) -> anyhow::Result<RuntimeRow> {
-        self.ensure_namespace(org_id).await?;
+        self.ensure_namespace_with_quota(
+            org_id,
+            agent.org_quota.max_cloud_agents,
+            agent.org_quota.max_storage_gb,
+        )
+        .await?;
         let token = Self::random_token();
-        let yaml = agent_manifests(agent_id, org_id, &self.engine_image, &token);
-        if let Err(e) = self.apply_yaml(&yaml).await {
-            if let Err(ce) = self.remove(agent_id).await {
-                tracing::warn!(
-                    agent_id = %agent_id,
-                    error = %ce,
-                    "k8s cleanup after apply error"
-                );
-            }
-            return Err(e);
-        }
-        let deploy = agent_deployment_name(agent_id);
-        let ns = org_namespace(org_id);
         if let Err(e) = self
-            .kubectl(&[
-                "rollout",
-                "status",
-                "deployment",
-                &deploy,
-                "-n",
-                &ns,
-                "--timeout=120s",
-            ])
+            .provision_agent_resources(agent_id, org_id, &token)
             .await
         {
             if let Err(ce) = self.remove(agent_id).await {
                 tracing::warn!(
                     agent_id = %agent_id,
                     error = %ce,
-                    "k8s cleanup after rollout error"
+                    "k8s cleanup after provision error"
                 );
             }
             return Err(e);
         }
-        self.wait_service_endpoints(&deploy, &ns).await?;
+        let deploy = agent_deployment_name(agent_id);
         let internal_url = internal_service_url(agent_id, org_id);
         let folder_path = match engine_provision::bootstrap_engine_agent(
             &internal_url,
@@ -194,21 +327,23 @@ impl RuntimeBackend for K8sRuntime {
     }
 
     async fn restart(&self, agent_id: Uuid) -> anyhow::Result<()> {
-        let ns = self
-            .kubectl(&[
-                "get",
-                "deployment",
-                "-A",
-                "-l",
-                &format!("houston.ai/agent-id={agent_id}"),
-                "-o",
-                "jsonpath={.items[0].metadata.namespace}",
-            ])
-            .await?;
+        let ns = self.deployment_namespace(agent_id).await?;
         let deploy = agent_deployment_name(agent_id);
         self.kubectl(&["rollout", "restart", "deployment", &deploy, "-n", &ns])
             .await?;
         Ok(())
+    }
+
+    async fn stop(&self, agent_id: Uuid) -> anyhow::Result<()> {
+        self.scale_agent_deployment(agent_id, 0).await
+    }
+
+    async fn start(&self, agent_id: Uuid) -> anyhow::Result<()> {
+        self.scale_agent_deployment(agent_id, 1).await?;
+        let ns = self.deployment_namespace(agent_id).await?;
+        let deploy = agent_deployment_name(agent_id);
+        self.wait_deployment_ready(&deploy, &ns).await?;
+        self.wait_service_endpoints(&deploy, &ns).await
     }
 
     async fn remove(&self, agent_id: Uuid) -> anyhow::Result<()> {
@@ -238,7 +373,7 @@ impl RuntimeBackend for K8sRuntime {
     }
 
     async fn status(&self, agent_id: Uuid) -> anyhow::Result<String> {
-        let out = self
+        let ready = self
             .kubectl(&[
                 "get",
                 "deployment",
@@ -249,17 +384,24 @@ impl RuntimeBackend for K8sRuntime {
                 "jsonpath={.items[0].status.readyReplicas}",
             ])
             .await?;
-        if out == "1" {
-            Ok("running".into())
-        } else {
-            Ok("provisioning".into())
-        }
+        let spec = self
+            .kubectl(&[
+                "get",
+                "deployment",
+                "-A",
+                "-l",
+                &format!("houston.ai/agent-id={agent_id}"),
+                "-o",
+                "jsonpath={.items[0].spec.replicas}",
+            ])
+            .await?;
+        Ok(map_k8s_agent_status(&spec, &ready))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::service_endpoints_ready;
+    use super::{map_k8s_agent_status, service_endpoints_ready};
 
     #[test]
     fn service_endpoints_ready_accepts_pod_ip() {
@@ -270,5 +412,22 @@ mod tests {
     fn service_endpoints_ready_rejects_empty() {
         assert!(!service_endpoints_ready(""));
         assert!(!service_endpoints_ready("   "));
+    }
+
+    #[test]
+    fn map_k8s_agent_status_running() {
+        assert_eq!(map_k8s_agent_status("1", "1"), "running");
+    }
+
+    #[test]
+    fn map_k8s_agent_status_stopped_when_scaled_to_zero() {
+        assert_eq!(map_k8s_agent_status("0", ""), "stopped");
+        assert_eq!(map_k8s_agent_status("0", "0"), "stopped");
+    }
+
+    #[test]
+    fn map_k8s_agent_status_provisioning_while_scaling_up() {
+        assert_eq!(map_k8s_agent_status("1", ""), "provisioning");
+        assert_eq!(map_k8s_agent_status("1", "0"), "provisioning");
     }
 }

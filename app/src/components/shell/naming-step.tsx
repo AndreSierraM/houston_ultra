@@ -7,6 +7,7 @@ import {
   DialogTitle,
   HoustonAvatar,
   Input,
+  Spinner,
   cn,
   colorHex,
   resolveAgentColor,
@@ -15,7 +16,8 @@ import { ArrowLeft, Check, FolderOpen, ChevronDown } from "lucide-react";
 import type { AgentDefinition } from "../../lib/types";
 import type { AgentRuntimeMode } from "../../lib/cloud-client";
 import { RuntimeModeSelector } from "./runtime-mode-selector";
-import { tauriProvider, type ProviderStatus } from "../../lib/tauri";
+import { checkLocalProviderStatus } from "../../lib/local-provider-bridge";
+import type { ProviderStatus } from "../../lib/tauri";
 import { PROVIDERS, getProvider, getModel } from "../../lib/providers";
 
 interface NamingStepProps {
@@ -32,12 +34,15 @@ interface NamingStepProps {
   onRuntimeModeChange: (mode: AgentRuntimeMode) => void;
   syncProviderCredentials: boolean;
   onSyncProviderCredentialsChange: (value: boolean) => void;
+  syncComposioCredentials: boolean;
+  onSyncComposioCredentialsChange: (value: boolean) => void;
   onNameChange: (value: string) => void;
   onColorChange: (value: string) => void;
   onExistingPathChange: (path: string | null) => void;
   onProviderChange: (provider: string, model: string) => void;
   onBack: () => void;
   onSubmit: (e: FormEvent) => void;
+  creating?: boolean;
 }
 
 export function NamingStep({
@@ -56,9 +61,12 @@ export function NamingStep({
   onRuntimeModeChange,
   syncProviderCredentials,
   onSyncProviderCredentialsChange,
+  syncComposioCredentials,
+  onSyncComposioCredentialsChange,
   onProviderChange,
   onBack,
   onSubmit,
+  creating = false,
 }: NamingStepProps) {
   const { t } = useTranslation("shell");
   // Default to white on mount if none selected
@@ -141,6 +149,8 @@ export function NamingStep({
               onChange={onRuntimeModeChange}
               syncConnection={syncProviderCredentials}
               onSyncConnectionChange={onSyncProviderCredentialsChange}
+              syncComposioConnection={syncComposioCredentials}
+              onSyncComposioConnectionChange={onSyncComposioCredentialsChange}
             />
 
             {/* Link existing project — opt-in via agent features */}
@@ -198,10 +208,17 @@ export function NamingStep({
           )}
           <Button
             type="submit"
-            disabled={!name.trim()}
+            disabled={!name.trim() || creating}
             className="w-full rounded-full"
           >
-            {t("naming.createAgent")}
+            {creating ? (
+              <>
+                <Spinner className="size-4" />
+                {t("naming.createAgent")}
+              </>
+            ) : (
+              t("naming.createAgent")
+            )}
           </Button>
         </div>
       </footer>
@@ -225,7 +242,7 @@ export function InlineModelSelector({
 
   const loadStatuses = useCallback(async () => {
     const entries = await Promise.all(
-      PROVIDERS.map(async (p) => [p.id, await tauriProvider.checkStatus(p.id)] as const),
+      PROVIDERS.map(async (p) => [p.id, await checkLocalProviderStatus(p.id)] as const),
     );
     setStatuses(Object.fromEntries(entries));
   }, []);

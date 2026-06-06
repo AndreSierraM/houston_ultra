@@ -2,8 +2,10 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { HoustonEvent } from "@houston-ai/core";
 import { queryKeys } from "../lib/query-keys";
+import { engineAgentPath, isSyntheticCloudPath } from "../lib/engine-agent-path";
 import { subscribeHoustonEvents } from "../lib/events";
 import { onEngineRestarted } from "../lib/engine";
+import { isCloudAgent } from "../lib/runtime-router";
 import { useAgentStore } from "../stores/agents";
 import { useSessionStatusStore } from "../stores/session-status";
 
@@ -34,9 +36,25 @@ export function useAgentInvalidation() {
         case "SkillsChanged":
           qc.invalidateQueries({ queryKey: queryKeys.skills(p.data.agent_path) });
           break;
-        case "FilesChanged":
-          qc.invalidateQueries({ queryKey: queryKeys.files(p.data.agent_path) });
+        case "FilesChanged": {
+          const eventPath = p.data.agent_path;
+          qc.invalidateQueries({ queryKey: queryKeys.files(eventPath) });
+
+          const { agents, current } = useAgentStore.getState();
+          for (const agent of agents) {
+            if (!isCloudAgent(agent)) continue;
+            const resolved = engineAgentPath(agent);
+            if (resolved === eventPath) {
+              qc.invalidateQueries({ queryKey: queryKeys.files(resolved) });
+              continue;
+            }
+            if (isSyntheticCloudPath(agent.folderPath) && current?.id === agent.id) {
+              qc.invalidateQueries({ queryKey: queryKeys.files(eventPath) });
+              qc.invalidateQueries({ queryKey: queryKeys.files(agent.folderPath) });
+            }
+          }
           break;
+        }
         case "ConfigChanged":
           qc.invalidateQueries({ queryKey: queryKeys.config(p.data.agent_path) });
           break;
@@ -65,14 +83,14 @@ export function useAgentInvalidation() {
           break;
         // Composio CLI became available — refresh integrations state.
         case "ComposioCliReady":
-          qc.invalidateQueries({ queryKey: queryKeys.connections() });
-          qc.invalidateQueries({ queryKey: queryKeys.composioApps() });
-          qc.invalidateQueries({ queryKey: queryKeys.connectedToolkits() });
+          qc.invalidateQueries({ queryKey: ["connections"] });
+          qc.invalidateQueries({ queryKey: ["composio-apps"] });
+          qc.invalidateQueries({ queryKey: ["connected-toolkits"] });
           break;
         // Engine-side watcher saw a toolkit land in the consumer
         // connections list — flip every visible Composio card.
         case "ComposioConnectionAdded":
-          qc.invalidateQueries({ queryKey: queryKeys.connectedToolkits() });
+          qc.invalidateQueries({ queryKey: ["connected-toolkits"] });
           break;
         // A provider OAuth sign-in (or sign-out) finished — refresh the
         // cached provider statuses so the chat model picker reflects the new

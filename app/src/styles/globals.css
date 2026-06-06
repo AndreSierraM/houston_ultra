@@ -67,3 +67,15 @@ body {
   -webkit-mask-repeat: no-repeat;
   flex-shrink: 0;
 }
+
+@keyframes houston-rocket-launch {
+  0%,
+  100% {
+    transform: translateY(8px) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(-20px) scale(1.05);
+    opacity: 0.92;
+  }
+}

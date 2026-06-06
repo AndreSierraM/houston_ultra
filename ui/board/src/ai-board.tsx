@@ -432,13 +432,15 @@ export function AIBoard({
   }, [!!showPanel, onPanelOpenChange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ensure parent resets its "panel open" state when AIBoard unmounts
-  // (e.g. tab switch). Without this, portal containers in the app layout
-  // would remain visible but empty.
+  // (e.g. tab switch). Defer the store write so WKWebView finishes portal
+  // DOM teardown before the shell re-layouts the panel container.
   useEffect(() => {
     return () => {
-      onPanelOpenChange?.(false)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+      queueMicrotask(() => {
+        onPanelOpenChange?.(false);
+      });
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const closePanel = useCallback(() => {
     setNewPanelOpen(false)
@@ -643,12 +645,15 @@ export function AIBoard({
     return <div className="h-full overflow-hidden">{board}</div>
   }
 
+  const portalTarget =
+    panelContainer && panelContainer.isConnected ? panelContainer : null
+
   // Portal mode: render panel into an app-level container (full-height layout)
-  if (panelContainer) {
+  if (portalTarget) {
     return (
       <>
         <div className="h-full overflow-hidden">{board}</div>
-        {createPortal(detailPanel, panelContainer)}
+        {createPortal(detailPanel, portalTarget)}
       </>
     )
   }

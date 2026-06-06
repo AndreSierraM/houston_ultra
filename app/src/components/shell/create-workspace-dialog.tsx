@@ -23,6 +23,7 @@ import { AiAssistStep } from "./ai-assist-step";
 import { AiReviewStep } from "./ai-review-step";
 import { AiRoutineStep } from "./ai-routine-step";
 import { AiIntegrationsStep } from "./ai-integrations-step";
+import { CloudAgentLaunchOverlay } from "./cloud-agent-launch-overlay";
 import { DEFAULT_TAB_ID } from "../../agents/standard-tabs";
 import {
   hasCloudToken,
@@ -65,6 +66,7 @@ export function CreateAgentDialog() {
   const [model, setModel] = useState<string>(getDefaultModel("anthropic"));
   const [runtimeMode, setRuntimeMode] = useState<AgentRuntimeMode>("local");
   const [syncProviderCredentials, setSyncProviderCredentials] = useState(true);
+  const [syncComposioCredentials, setSyncComposioCredentials] = useState(true);
 
   // Reset form on close. On open, sync the picker to the sticky last-used
   // pair. Reading on open (not mount) prevents the old "stale workspace
@@ -87,6 +89,7 @@ export function CreateAgentDialog() {
       setExistingPath(null);
       setRuntimeMode("local");
       setSyncProviderCredentials(true);
+      setSyncComposioCredentials(true);
       return;
     }
     let cancelled = false;
@@ -144,8 +147,15 @@ export function CreateAgentDialog() {
         provider,
         model,
         runtimeMode === "cloud_24_7" ? syncProviderCredentials : false,
+        runtimeMode === "cloud_24_7" ? syncComposioCredentials : false,
       );
-      const { agent, credentialSync, credentialSyncError } = createResult;
+      const {
+        agent,
+        credentialSync,
+        credentialSyncError,
+        composioCredentialSync,
+        composioCredentialSyncError,
+      } = createResult;
       if (runtimeMode === "local") {
         // Write provider/model to the agent's on-disk config. Cloud agents
         // receive provider/model during control-plane provision — reading or
@@ -173,13 +183,24 @@ export function CreateAgentDialog() {
             variant: "error",
           });
         }
+        if (composioCredentialSync === "success") {
+          addToast({
+            title: t("runtimeMode.cloudCreateComposioSyncSuccess"),
+            variant: "success",
+          });
+        } else if (composioCredentialSync === "failed") {
+          addToast({
+            title: t("runtimeMode.cloudCreateSyncFailed"),
+            description: composioCredentialSyncError,
+            variant: "error",
+          });
+        }
       }
-      if (runtimeMode === "local" && routineAccepted && routineForm) {
-        // The agent is brand new, so its scheduler was never started
-        // (create() doesn't go through setCurrent, and use-houston-init
-        // only starts schedulers that existed at launch). startScheduler
-        // is idempotent and picks up the just-written routine; plain
-        // syncScheduler would be a no-op for an unstarted agent.
+      if (routineAccepted && routineForm) {
+        // create() already runs activateAgentRuntime (scheduler may be
+        // running). tauriRoutines routes local folderPath and cloud://
+        // paths to the correct engine; startScheduler is idempotent and
+        // re-syncs after the just-written routine.
         try {
           await tauriRoutines.create(agent.folderPath, {
             name: routineForm.name,
@@ -244,9 +265,14 @@ export function CreateAgentDialog() {
         // active so clicking the tour's Next button doesn't kill the
         // dialog mid-step; the tour closes it explicitly on the outro.
         onPointerDownOutside={(e) => { if (uiTourActive) e.preventDefault(); }}
-        onEscapeKeyDown={(e) => { if (uiTourActive) e.preventDefault(); }}
+        onEscapeKeyDown={(e) => { if (uiTourActive || creating) e.preventDefault(); }}
       >
-        {step === 1 ? (
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <CloudAgentLaunchOverlay
+            active={creating}
+            cloud={runtimeMode === "cloud_24_7"}
+          />
+          {step === 1 ? (
           <div className="flex flex-col flex-1 min-h-0">
             <DialogHeader className="shrink-0 px-6 pt-6 pb-3">
               <DialogTitle>{t("newAgent.dialogTitle")}</DialogTitle>
@@ -346,6 +372,8 @@ export function CreateAgentDialog() {
             onRuntimeModeChange={setRuntimeMode}
             syncProviderCredentials={syncProviderCredentials}
             onSyncProviderCredentialsChange={setSyncProviderCredentials}
+            syncComposioCredentials={syncComposioCredentials}
+            onSyncComposioCredentialsChange={setSyncComposioCredentials}
           />
         ) : (
           <NamingStep
@@ -365,10 +393,14 @@ export function CreateAgentDialog() {
             onRuntimeModeChange={setRuntimeMode}
             syncProviderCredentials={syncProviderCredentials}
             onSyncProviderCredentialsChange={setSyncProviderCredentials}
+            syncComposioCredentials={syncComposioCredentials}
+            onSyncComposioCredentialsChange={setSyncComposioCredentials}
             onBack={() => setStep(1)}
             onSubmit={handleSubmit}
+            creating={creating}
           />
         )}
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Badge, cn, Switch } from "@houston-ai/core";
+import { Badge, cn } from "@houston-ai/core";
 import {
   getCloudBaseUrl,
   hasCloudToken,
@@ -10,12 +10,17 @@ import {
 import type { AgentRuntimeMode } from "../../lib/cloud-client";
 import { useSession } from "../../hooks/use-session";
 import { isAuthConfigured } from "../../lib/supabase";
+import { useConnections, useConnectedToolkits } from "../../hooks/queries";
+import { CloudSyncToggle } from "./cloud-sync-toggle";
+import { ComposioCarryPreview } from "./composio-carry-preview";
 
 interface RuntimeModeSelectorProps {
   value: AgentRuntimeMode;
   onChange: (mode: AgentRuntimeMode) => void;
   syncConnection?: boolean;
   onSyncConnectionChange?: (value: boolean) => void;
+  syncComposioConnection?: boolean;
+  onSyncComposioConnectionChange?: (value: boolean) => void;
 }
 
 export function RuntimeModeSelector({
@@ -23,6 +28,8 @@ export function RuntimeModeSelector({
   onChange,
   syncConnection = true,
   onSyncConnectionChange,
+  syncComposioConnection = true,
+  onSyncComposioConnectionChange,
 }: RuntimeModeSelectorProps) {
   const { t } = useTranslation("shell");
   const { data: session } = useSession();
@@ -30,6 +37,9 @@ export function RuntimeModeSelector({
   const authRequired = isAuthConfigured();
   const [pingOk, setPingOk] = useState<boolean | null>(null);
   const [latencyMs, setLatencyMs] = useState<number | undefined>();
+  const { data: localComposio } = useConnections();
+  const localComposioOk = localComposio?.status === "ok";
+  const { data: localToolkits } = useConnectedToolkits(localComposioOk);
 
   useEffect(() => {
     if (value !== "cloud_24_7" || !isCloudConfigured()) {
@@ -47,6 +57,20 @@ export function RuntimeModeSelector({
       cancelled = true;
     };
   }, [value]);
+
+  const composioCount = localToolkits?.length ?? 0;
+  const composioSyncDescription = localComposioOk
+    ? composioCount > 0
+      ? t("runtimeMode.syncComposioDescriptionWithApps", { count: composioCount })
+      : t("runtimeMode.syncComposioDescriptionSignedIn")
+    : t("runtimeMode.syncComposioUnavailable");
+
+  const showCarryPreview =
+    value === "cloud_24_7" &&
+    syncComposioConnection &&
+    localComposioOk &&
+    composioCount > 0 &&
+    localToolkits;
 
   return (
     <div className="space-y-2">
@@ -84,21 +108,26 @@ export function RuntimeModeSelector({
         </button>
       </div>
       {value === "cloud_24_7" && onSyncConnectionChange && (
-        <label className="flex items-start gap-3 rounded-xl border border-border px-3 py-2.5 cursor-pointer">
-          <Switch
-            checked={syncConnection}
-            onCheckedChange={onSyncConnectionChange}
-            aria-label={t("runtimeMode.syncConnectionTitle")}
-          />
-          <span className="min-w-0 text-left">
-            <span className="block text-sm font-medium">
-              {t("runtimeMode.syncConnectionTitle")}
-            </span>
-            <span className="block text-xs text-muted-foreground mt-0.5">
-              {t("runtimeMode.syncConnectionDescription")}
-            </span>
-          </span>
-        </label>
+        <CloudSyncToggle
+          checked={syncConnection}
+          onCheckedChange={onSyncConnectionChange}
+          title={t("runtimeMode.syncConnectionTitle")}
+          description={t("runtimeMode.syncConnectionDescription")}
+          ariaLabel={t("runtimeMode.syncConnectionTitle")}
+        />
+      )}
+      {value === "cloud_24_7" && onSyncComposioConnectionChange && (
+        <CloudSyncToggle
+          checked={syncComposioConnection}
+          onCheckedChange={onSyncComposioConnectionChange}
+          disabled={!localComposioOk}
+          title={t("runtimeMode.syncComposioTitle")}
+          description={composioSyncDescription}
+          ariaLabel={t("runtimeMode.syncComposioTitle")}
+        />
+      )}
+      {showCarryPreview && (
+        <ComposioCarryPreview toolkits={localToolkits} context="create" />
       )}
       {value === "cloud_24_7" && !hasCloudToken() && !signedIn && (
         <p className="text-center text-xs text-muted-foreground">

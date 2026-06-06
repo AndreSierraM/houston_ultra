@@ -75,9 +75,12 @@ export function UiTour({ steps, onDismiss }: UiTourProps) {
   // Re-measure target on step change + on viewport resize. useLayoutEffect so
   // the cutout/tooltip render in the right place on the same paint as the
   // step transition (avoids a 1-frame flash at the old position).
+  // Depend on `index` only — parent often passes a fresh `steps` array each
+  // render; `[step]` would re-fire onEnter (Zustand writes) every paint.
   useLayoutEffect(() => {
-    step?.onEnter?.();
-    if (!step?.targetSelector) {
+    const active = steps[index];
+    active?.onEnter?.();
+    if (!active?.targetSelector) {
       setRect(null);
       return;
     }
@@ -88,7 +91,7 @@ export function UiTour({ steps, onDismiss }: UiTourProps) {
     let tries = 0;
     const measure = () => {
       if (cancelled) return;
-      const el = document.querySelector(step.targetSelector!);
+      const el = document.querySelector(active.targetSelector!);
       if (!el) {
         if (tries++ < 30) {
           raf = window.requestAnimationFrame(measure);
@@ -111,7 +114,7 @@ export function UiTour({ steps, onDismiss }: UiTourProps) {
       if (raf) window.cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
     };
-  }, [step]);
+  }, [index]);
 
   if (!step) return null;
   const isLast = index === steps.length - 1;

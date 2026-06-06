@@ -1,13 +1,17 @@
 /**
- * Provider API-key connect. Keys are stored on the active agent's engine and
- * injected into CLI spawns (terminal-manager). This does not bypass the harness.
+ * Provider API-key connect. Keys are stored under ~/.houston/providers/ on
+ * the local sidecar unless `target` is `activeAgent` (cloud reconnect flows).
  */
 import type { ProviderInfo } from "./providers";
-import { tauriProvider } from "./tauri";
+import { currentAgent } from "./agent-lookup";
+import { resolveEngine } from "./engine-for-agent";
+import { saveLocalProviderApiKey } from "./local-provider-bridge";
 
-const DUAL_PATH_CONNECT_PROVIDER_IDS = new Set(["anthropic", "openai", "gemini"]);
+export type ProviderCredentialSaveTarget = "local" | "activeAgent";
 
-/** CLI OAuth primary with optional API-key advanced section (Anthropic, OpenAI, Gemini). */
+const DUAL_PATH_CONNECT_PROVIDER_IDS = new Set(["anthropic", "openai"]);
+
+/** CLI OAuth primary with optional API-key advanced section (Anthropic, OpenAI). */
 export function isDualPathConnectProvider(
   provider: ProviderInfo | null | undefined,
 ): boolean {
@@ -22,7 +26,6 @@ export function isApiKeyOnlyProvider(provider: ProviderInfo | null | undefined):
 /** Whether `saveProviderApiKey` is wired for this provider today. */
 export function supportsProviderApiKeySave(providerId: string): boolean {
   switch (providerId) {
-    case "gemini":
     case "openrouter":
     case "anthropic":
     case "openai":
@@ -41,21 +44,36 @@ export function providerSupportsApiKeyConnect(
   return isDualPathConnectProvider(provider) && !!provider.apiKeyConsoleUrl;
 }
 
-export async function saveProviderApiKey(providerId: string, apiKey: string): Promise<void> {
+async function saveProviderApiKeyOnEngine(
+  engine: Awaited<ReturnType<typeof resolveEngine>>,
+  providerId: string,
+  apiKey: string,
+): Promise<void> {
   switch (providerId) {
-    case "gemini":
-      await tauriProvider.setGeminiApiKey(apiKey);
-      return;
     case "openrouter":
-      await tauriProvider.setOpenRouterApiKey(apiKey);
+      await engine.setOpenRouterApiKey(apiKey);
       return;
     case "anthropic":
-      await tauriProvider.setAnthropicApiKey(apiKey);
+      await engine.setAnthropicApiKey(apiKey);
       return;
     case "openai":
-      await tauriProvider.setOpenAiApiKey(apiKey);
+      await engine.setOpenAiApiKey(apiKey);
       return;
     default:
       throw new Error(`Provider "${providerId}" does not support API key connect`);
   }
+}
+
+/** Settings/onboarding default to `local`; chat reconnect uses `activeAgent`. */
+export async function saveProviderApiKey(
+  providerId: string,
+  apiKey: string,
+  target: ProviderCredentialSaveTarget = "local",
+): Promise<void> {
+  if (target === "local") {
+    await saveLocalProviderApiKey(providerId, apiKey);
+    return;
+  }
+  const engine = await resolveEngine(currentAgent());
+  await saveProviderApiKeyOnEngine(engine, providerId, apiKey);
 }

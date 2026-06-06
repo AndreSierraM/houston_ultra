@@ -1,4 +1,7 @@
 //! `POST /v1/agents/bootstrap-bundle` — export cloud bootstrap payload.
+//!
+//! MVP callers use `installedPath` (Store template). `agentPath` is reserved
+//! for future local → cloud migration and is not used by the desktop UI today.
 
 use crate::routes::error::ApiError;
 use crate::state::ServerState;

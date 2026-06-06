@@ -7,6 +7,8 @@
  * not bypass this path.
  */
 
+import { engineAgentPath } from "./engine-agent-path";
+import { ensureCloudAgentAwake } from "./cloud-client";
 import { resolveEngine } from "./engine-for-agent";
 import {
   disconnectCloudEngineWs,
@@ -39,13 +41,20 @@ export async function activateAgentRuntime(agent: Agent): Promise<void> {
   if (!isCloudAgent(agent)) {
     disconnectCloudEngineWs();
   } else {
+    await ensureCloudAgentAwake(agent);
     await ensureAgentEngineWs(agent);
   }
 
-  const engine = await resolveEngine(agent, agent.folderPath);
+  const agentPath = engineAgentPath(agent);
+  if (!agentPath) {
+    // Cloud agent still provisioning (folderPath is cloud:// placeholder).
+    return;
+  }
+
+  const engine = await resolveEngine(agent, agentPath);
   await Promise.all([
-    engine.startAgentWatcher(agent.folderPath),
-    engine.startRoutineScheduler(agent.folderPath),
+    engine.startAgentWatcher(agentPath),
+    engine.startRoutineScheduler(agentPath),
   ]);
 }
 
@@ -54,7 +63,7 @@ export async function deactivateAgentRuntime(agent: Agent | null): Promise<void>
   if (!agent) return;
   const plan = runtimeDeactivationPlan(agent);
   if (plan.disconnectCloudWs) {
-    disconnectCloudEngineWs();
+    disconnectCloudEngineWs(agent.id);
   }
   if (plan.stopLocalWatcher) {
     await stopLocalWatcher().catch(() => undefined);

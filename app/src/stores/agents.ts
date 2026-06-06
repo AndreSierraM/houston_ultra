@@ -49,7 +49,17 @@ interface AgentState {
     provider?: string,
     model?: string,
     syncProviderCredentials?: boolean,
-  ) => Promise<CreatedAgent & Pick<CloudAgentCreateResult, "credentialSync" | "credentialSyncError">>;
+    syncComposioCredentials?: boolean,
+  ) => Promise<
+    CreatedAgent &
+      Pick<
+        CloudAgentCreateResult,
+        | "credentialSync"
+        | "credentialSyncError"
+        | "composioCredentialSync"
+        | "composioCredentialSyncError"
+      >
+  >;
   delete: (workspaceId: string, id: string) => Promise<void>;
   rename: (workspaceId: string, id: string, newName: string) => Promise<void>;
   updateColor: (workspaceId: string, id: string, color: string) => Promise<void>;
@@ -64,11 +74,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const silent = options?.silent ?? false;
     if (!silent) set({ loading: true });
     try {
-      const localAgents = await tauriAgents.list(workspaceId);
-      let cloudAgents: Agent[] = [];
-      if (isCloudConfigured()) {
-        if (!silent) {
-          const ping = await pingCloudServer();
+      const cloudConfigured = isCloudConfigured();
+      const [localAgents, cloudAgentsResult] = await Promise.all([
+        tauriAgents.list(workspaceId),
+        cloudConfigured
+          ? listCloudAgents().catch(() => get().agents.filter((a) => isCloudAgent(a)))
+          : Promise.resolve([] as Agent[]),
+      ]);
+      if (cloudConfigured && !silent) {
+        void pingCloudServer().then((ping) => {
           if (!ping.ok) {
             showErrorToast(
               "cloud_ping",
@@ -77,27 +91,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               }),
             );
           }
-        }
-        try {
-          const fetched = await listCloudAgents();
-          const fetchedIds = new Set(fetched.map((a) => a.id));
-          cloudAgents = [
-            ...fetched,
-            ...get().agents.filter(
-              (a) => isCloudAgent(a) && !fetchedIds.has(a.id),
-            ),
-          ];
-        } catch {
-          cloudAgents = get().agents.filter((a) => isCloudAgent(a));
-        }
+        });
       }
+      const cloudAgents = cloudAgentsResult;
       const cloudIds = new Set(cloudAgents.map((a) => a.id));
       const agents = [
         ...localAgents.filter((a) => !cloudIds.has(a.id) && !isCloudAgent(a)),
         ...cloudAgents,
       ];
       const prev = get().current;
-      const selected = agents.find((a) => a.id === prev?.id) ?? prev;
+      // If the previously-selected agent was deleted server-side it won't be in
+      // the new list; fall back to the first agent (or null) instead of pinning
+      // a ghost agent that no longer exists.
+      const selected =
+        agents.find((a) => a.id === prev?.id) ?? agents[0] ?? null;
       set({ agents, current: selected, loading: false });
       if (
         selected &&
@@ -142,6 +149,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     provider?: string,
     model?: string,
     syncProviderCredentials = false,
+    syncComposioCredentials = false,
   ) => {
     const result =
       runtime === "cloud_24_7"
@@ -155,6 +163,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             provider,
             model,
             syncProviderCredentials,
+            syncComposioCredentials,
           })
         : {
             agent: (
@@ -170,6 +179,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               )
             ).agent,
             credentialSync: "skipped" as const,
+            composioCredentialSync: "skipped" as const,
           };
     analytics.track("agent_created", { config_id: configId });
     const { agent } = result;
@@ -193,6 +203,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       agent,
       credentialSync: result.credentialSync,
       credentialSyncError: result.credentialSyncError,
+      composioCredentialSync: result.composioCredentialSync,
+      composioCredentialSyncError: result.composioCredentialSyncError,
     };
   },
 

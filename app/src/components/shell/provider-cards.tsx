@@ -5,7 +5,6 @@ import {
   ClaudeLogo,
   OpenAILogo,
   OpenRouterLogo,
-  GeminiLogo,
   DeepSeekLogo,
   MiniMaxLogo,
 } from "./provider-logos";
@@ -23,8 +22,6 @@ function ProviderLogo({ provider }: { provider: ProviderInfo }) {
       return <OpenAILogo />;
     case "openrouter":
       return <OpenRouterLogo />;
-    case "gemini":
-      return <GeminiLogo />;
     default:
       return (
         <span className="text-[10px] font-semibold tracking-tight text-muted-foreground">

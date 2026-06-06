@@ -6,6 +6,6 @@ import type { TabProps } from "../../lib/types";
  * `IntegrationsView` so this surface stays identical to the sidebar
  * workspace-level entry point — single source of truth, no drift.
  */
-export default function IntegrationsTab(_props: TabProps) {
-  return <IntegrationsView />;
+export default function IntegrationsTab({ agent }: TabProps) {
+  return <IntegrationsView agentPath={agent.folderPath} />;
 }

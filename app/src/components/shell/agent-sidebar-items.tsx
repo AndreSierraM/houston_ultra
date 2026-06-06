@@ -4,12 +4,14 @@ import type { Agent } from "../../lib/types";
 import { AgentSidebarColorMenu } from "./agent-sidebar-color-menu";
 import type { AgentActivitySummary } from "./agent-activity-summary-model";
 import { AgentSidebarIcon, NeedsYouChip } from "./agent-sidebar-status";
+import { isCloudAgent } from "../../lib/runtime-router";
 
 interface BuildAgentSidebarItemsArgs {
   agents: Agent[];
   summaries: Record<string, AgentActivitySummary>;
   runningLabel: (count: number) => string;
   needsYouLabel: (count: number) => string;
+  cloudLabel: string;
   onChangeColor: (agentId: string, color: string) => void;
   onShareAgent: (agentId: string) => void;
   shareLabel: (agent: Agent) => string;
@@ -20,6 +22,7 @@ export function buildAgentSidebarItems({
   summaries,
   runningLabel,
   needsYouLabel,
+  cloudLabel,
   onChangeColor,
   onShareAgent,
   shareLabel,
@@ -39,6 +42,8 @@ export function buildAgentSidebarItems({
           color={agent.color}
           running={hasRunning}
           runningLabel={runningLabel(summary.runningCount)}
+          isCloud={isCloudAgent(agent)}
+          cloudLabel={cloudLabel}
         />
       ),
       trailing:

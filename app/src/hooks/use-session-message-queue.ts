@@ -29,6 +29,8 @@ export function useSessionMessageQueue({
   const remove = useQueuedMessageStore((state) => state.remove);
   const takeAll = useQueuedMessageStore((state) => state.takeAll);
   const flushingRef = useRef(false);
+  const sendNowRef = useRef(sendNow);
+  sendNowRef.current = sendNow;
 
   const queueMessage = useCallback(
     (text: string, files: File[]) => {
@@ -51,8 +53,9 @@ export function useSessionMessageQueue({
   const sendOrQueue = useCallback(
     async (text: string, files: File[]) => {
       if (isActive || flushingRef.current) {
-        queueMessage(text, files);
-        return;
+        if (queueMessage(text, files)) {
+          return;
+        }
       }
       await sendNow(text, files);
     },
@@ -67,10 +70,10 @@ export function useSessionMessageQueue({
     const text = combineQueuedMessageText(items);
     const files = combineQueuedMessageFiles(items);
     flushingRef.current = true;
-    void Promise.resolve(sendNow(text, files)).finally(() => {
+    void Promise.resolve(sendNowRef.current(text, files)).finally(() => {
       flushingRef.current = false;
     });
-  }, [agentPath, sessionKey, isActive, queued.length, takeAll, sendNow]);
+  }, [agentPath, sessionKey, isActive, queued.length, takeAll]);
 
   const queuedMessages = useMemo<QueuedChatMessageView[]>(
     () =>

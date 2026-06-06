@@ -27,7 +27,10 @@ export interface ComposioAuthState {
   error: string | null;
 }
 
-export function useComposioAuth(onSuccess: () => void | Promise<void>) {
+export function useComposioAuth(
+  onSuccess: () => void | Promise<void>,
+  agentPath?: string,
+) {
   const [state, setState] = useState<ComposioAuthState>({
     open: false,
     phase: "idle",
@@ -54,7 +57,7 @@ export function useComposioAuth(onSuccess: () => void | Promise<void>) {
     try {
       // 1. Get the login URL from the backend.
       logger.info("[composio-auth] calling startOAuth...");
-      const { login_url, cli_key } = await tauriConnections.startOAuth();
+      const { login_url, cli_key } = await tauriConnections.startOAuth(agentPath);
       logger.info(`[composio-auth] startOAuth returned: url=${login_url} key=${cli_key}`);
 
       // 2. ALWAYS surface the URL and open the browser — no stale-gen
@@ -75,7 +78,7 @@ export function useComposioAuth(onSuccess: () => void | Promise<void>) {
       //    we don't want an old flow's completion to overwrite the
       //    current state.
       logger.info("[composio-auth] calling completeLogin...");
-      await tauriConnections.completeLogin(cli_key);
+      await tauriConnections.completeLogin(cli_key, agentPath);
       logger.info("[composio-auth] completeLogin resolved OK");
       if (!mountedRef.current || genRef.current !== myGen) {
         logger.info("[composio-auth] stale gen after completeLogin, not updating state");
@@ -93,7 +96,7 @@ export function useComposioAuth(onSuccess: () => void | Promise<void>) {
         error: String(e),
       }));
     }
-  }, [onSuccess]);
+  }, [agentPath, onSuccess]);
 
   const reopenBrowser = useCallback(() => {
     if (state.loginUrl) {

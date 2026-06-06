@@ -1,6 +1,11 @@
 import { useCallback, useMemo } from "react";
 import type { AIBoardProps } from "@houston-ai/board";
 import { useSessionMessageQueue } from "../../hooks/use-session-message-queue";
+import {
+  resolveBoardSendRoute,
+  resolveComposerSubmitHandled,
+  shouldAttemptComposerQueue,
+} from "./board-send-decision";
 import type { SendOverrides } from "./board-source";
 
 type ComposerSubmit = NonNullable<AIBoardProps["onComposerSubmit"]>;
@@ -54,7 +59,7 @@ export function useBoardSendQueue({
 
   const handleSendMessage = useCallback(
     async (sessionKey: string, text: string, files: File[]) => {
-      if (sessionKey === selectedSessionKey) {
+      if (resolveBoardSendRoute(sessionKey, selectedSessionKey) === "queue-or-send") {
         await messageQueue.sendOrQueue(text, files);
         return;
       }
@@ -65,8 +70,15 @@ export function useBoardSendQueue({
 
   const handleComposerSubmit = useCallback<ComposerSubmit>(
     async (ctx) => {
-      if (ctx.sessionKey && ctx.sessionKey === selectedSessionKey && selectedSessionActive) {
-        messageQueue.queueMessage(ctx.text, ctx.files);
+      const attemptedQueue = shouldAttemptComposerQueue(
+        ctx.sessionKey,
+        selectedSessionKey,
+        selectedSessionActive,
+      );
+      const queueCaptured = attemptedQueue
+        ? messageQueue.queueMessage(ctx.text, ctx.files)
+        : false;
+      if (resolveComposerSubmitHandled(attemptedQueue, queueCaptured)) {
         return true;
       }
       return (await panelComposerSubmit?.(ctx)) ?? false;

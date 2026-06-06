@@ -79,6 +79,14 @@ mod tests {
     }
 
     #[test]
+    fn export_product_prompt_for_cloud() {
+        if std::env::var("EXPORT_CLOUD_PROMPT").ok().as_deref() != Some("1") {
+            return;
+        }
+        print!("{}", system_prompt());
+    }
+
+    #[test]
     fn routine_guidance_maps_recurring_requests_to_routines() {
         let prompt = system_prompt();
 

@@ -5,9 +5,17 @@ use async_trait::async_trait;
 use serde::Serialize;
 use uuid::Uuid;
 
+/// Org-level K8s ResourceQuota inputs (from `cloud_entitlements`).
+#[derive(Debug, Clone, Copy)]
+pub struct OrgResourceQuota {
+    pub max_cloud_agents: i32,
+    pub max_storage_gb: i32,
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentProvisionConfig {
     pub bootstrap: ResolvedBootstrap,
+    pub org_quota: OrgResourceQuota,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -30,6 +38,10 @@ pub trait RuntimeBackend: Send + Sync {
     ) -> anyhow::Result<RuntimeRow>;
 
     async fn restart(&self, agent_id: Uuid) -> anyhow::Result<()>;
+
+    async fn stop(&self, agent_id: Uuid) -> anyhow::Result<()>;
+
+    async fn start(&self, agent_id: Uuid) -> anyhow::Result<()>;
 
     async fn remove(&self, agent_id: Uuid) -> anyhow::Result<()>;
 

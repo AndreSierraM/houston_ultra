@@ -3,10 +3,10 @@ import { queryKeys } from "../../lib/query-keys";
 import { tauriConnections } from "../../lib/tauri";
 import { normalizeToolkitSlugs } from "../../lib/composio-toolkits";
 
-export function useConnections() {
+export function useConnections(agentPath?: string) {
   return useQuery({
-    queryKey: queryKeys.connections(),
-    queryFn: () => tauriConnections.list(),
+    queryKey: queryKeys.connections(agentPath),
+    queryFn: () => tauriConnections.list(agentPath),
     // Auth-state-sensitive query: its result depends on whether a valid
     // Composio token exists. If we refetch on window focus, a fetch can
     // start mid-OAuth (before the token is stored) and resolve with a stale
@@ -16,10 +16,10 @@ export function useConnections() {
   });
 }
 
-export function useComposioApps() {
+export function useComposioApps(agentPath?: string) {
   return useQuery({
-    queryKey: queryKeys.composioApps(),
-    queryFn: () => tauriConnections.listApps(),
+    queryKey: queryKeys.composioApps(agentPath),
+    queryFn: () => tauriConnections.listApps(agentPath),
     staleTime: 1000 * 60 * 60,
   });
 }
@@ -28,40 +28,40 @@ export function useComposioApps() {
  * List all connected toolkit slugs in the consumer namespace.
  * Uses `composio connections list` (single CLI call, no probing).
  */
-export function useConnectedToolkits(enabled: boolean) {
+export function useConnectedToolkits(enabled: boolean, agentPath?: string) {
   return useQuery({
-    queryKey: queryKeys.connectedToolkits(),
+    queryKey: queryKeys.connectedToolkits(agentPath),
     queryFn: async () =>
-      normalizeToolkitSlugs(await tauriConnections.listConnectedToolkits()),
+      normalizeToolkitSlugs(await tauriConnections.listConnectedToolkits(agentPath)),
     enabled,
     staleTime: 1000 * 60,
     refetchOnWindowFocus: false,
   });
 }
 
-export function useInvalidateConnections() {
+export function useInvalidateConnections(agentPath?: string) {
   const qc = useQueryClient();
   return async () => {
     await Promise.all([
-      qc.invalidateQueries({ queryKey: queryKeys.connections() }),
-      qc.invalidateQueries({ queryKey: queryKeys.composioApps() }),
-      qc.invalidateQueries({ queryKey: queryKeys.connectedToolkits() }),
+      qc.invalidateQueries({ queryKey: queryKeys.connections(agentPath) }),
+      qc.invalidateQueries({ queryKey: queryKeys.composioApps(agentPath) }),
+      qc.invalidateQueries({ queryKey: queryKeys.connectedToolkits(agentPath) }),
     ]);
   };
 }
 
-export function useResetConnections() {
+export function useResetConnections(agentPath?: string) {
   const qc = useQueryClient();
   return async () => {
     await Promise.all([
-      qc.cancelQueries({ queryKey: queryKeys.connections() }),
-      qc.cancelQueries({ queryKey: queryKeys.composioApps() }),
-      qc.cancelQueries({ queryKey: queryKeys.connectedToolkits() }),
+      qc.cancelQueries({ queryKey: queryKeys.connections(agentPath) }),
+      qc.cancelQueries({ queryKey: queryKeys.composioApps(agentPath) }),
+      qc.cancelQueries({ queryKey: queryKeys.connectedToolkits(agentPath) }),
     ]);
-    await qc.resetQueries({ queryKey: queryKeys.connections() });
+    await qc.resetQueries({ queryKey: queryKeys.connections(agentPath) });
     await Promise.all([
-      qc.invalidateQueries({ queryKey: queryKeys.composioApps() }),
-      qc.invalidateQueries({ queryKey: queryKeys.connectedToolkits() }),
+      qc.invalidateQueries({ queryKey: queryKeys.composioApps(agentPath) }),
+      qc.invalidateQueries({ queryKey: queryKeys.connectedToolkits(agentPath) }),
     ]);
   };
 }

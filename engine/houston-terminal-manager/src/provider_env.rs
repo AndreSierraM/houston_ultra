@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::gemini_home::houston_data_root;
+use crate::houston_data_root::houston_data_root;
 
 /// Canonical credential file for a provider id (`anthropic`, `openai`, …).
 pub fn canonical_env_path(provider: &str) -> PathBuf {
@@ -19,7 +19,6 @@ pub fn canonical_env_path(provider: &str) -> PathBuf {
 pub fn legacy_env_paths(provider: &str) -> Vec<PathBuf> {
     let home = dirs::home_dir().unwrap_or_default();
     match provider {
-        "gemini" => vec![home.join(".gemini").join(".env")],
         "openrouter" => vec![home.join(".houston").join("openrouter").join(".env")],
         "anthropic" => vec![home.join(".houston").join("anthropic").join(".env")],
         "openai" => vec![home.join(".houston").join("openai").join(".env")],

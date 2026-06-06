@@ -1,6 +1,6 @@
 //! Shared one-shot provider CLI invocation.
 //!
-//! Spawns the provider CLI (Claude / Codex / Gemini), writes a prompt to
+//! Spawns the provider CLI (Claude / Codex), writes a prompt to
 //! stdin, and returns the full stdout as a string. Used by `summarize` and
 //! `generate_instructions` — both need a single prompt→text round-trip with
 //! no streaming and no session state.
@@ -19,7 +19,7 @@
 //! isolation) that the trait doesn't model.
 
 use crate::provider;
-use houston_terminal_manager::{claude_path, gemini_home, Provider};
+use houston_terminal_manager::{claude_path, Provider};
 use serde_json::Value;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
@@ -31,8 +31,6 @@ use tokio::time::timeout;
 const OPENROUTER_ENV_VAR: &str = "OPENROUTER_API_KEY";
 const ANTHROPIC_ENV_VAR: &str = "ANTHROPIC_API_KEY";
 const OPENAI_ENV_VAR: &str = "OPENAI_API_KEY";
-const GEMINI_ENV_VAR: &str = "GEMINI_API_KEY";
-
 /// Process-local Codex overrides for OpenRouter (see `cloud/openrouter-spike.md`).
 /// Houston never mutates `~/.codex/config.toml`; these apply only to the child.
 pub(crate) const OPENROUTER_CODEX_CONFIG: &[&str] = &[
@@ -53,7 +51,6 @@ pub async fn run_provider_oneshot(
         "anthropic" => run_claude(prompt, model, time_limit).await,
         "openai" => run_codex(prompt, model, time_limit).await,
         "openrouter" => run_openrouter_codex(prompt, model, time_limit).await,
-        "gemini" => run_gemini(prompt, model, time_limit).await,
         unknown => Err(format!(
             "no one-shot invocation wired up for provider {unknown:?}"
         )),
@@ -120,13 +117,6 @@ async fn inject_openai_api_key(cmd: &mut tokio::process::Command) -> Result<(), 
     Ok(())
 }
 
-async fn inject_gemini_api_key(cmd: &mut tokio::process::Command) -> Result<(), String> {
-    if let Some(key) = read_env_or_stored(GEMINI_ENV_VAR, provider::read_gemini_api_key().await)? {
-        cmd.env(GEMINI_ENV_VAR, key);
-    }
-    Ok(())
-}
-
 fn read_env_or_stored(
     env_var: &str,
     stored: Result<Option<String>, crate::error::CoreError>,
@@ -174,77 +164,6 @@ fn build_codex_oneshot_command(
         .arg(model)
         .arg("-");
     cmd
-}
-
-async fn run_gemini(prompt: &str, model: &str, time_limit: Duration) -> Result<String, String> {
-    // Prefer the bundled gemini SEA for the same reason codex does: a
-    // stale npm-global install on the user's PATH could emit a different
-    // output format and break parsers. The one-shot path asks for plain
-    // text (`--output-format text`) so we don't have to thread through a
-    // second NDJSON parser just for this call.
-    //
-    // On Windows there is no upstream gemini binary in v1 (see
-    // knowledge-base/cli-bundling.md, phase-2 note), so `bundled_gemini_path`
-    // returns None AND there's nothing on PATH. Surface a clear error
-    // instead of falling through to `Command::new("gemini")` which would
-    // fail with "program not found" and confuse the caller.
-    let bin = match houston_cli_bundle::bundled_gemini_path() {
-        Some(p) => p,
-        None => match houston_terminal_manager::provider::which_on_path("gemini") {
-            Some(p) => p,
-            None => {
-                return Err(if cfg!(windows) {
-                    "Gemini is not available on Windows yet. Switch to Anthropic \
-                     or OpenAI for now, or follow Houston's Windows release notes \
-                     for when Gemini lands."
-                        .into()
-                } else {
-                    "Gemini CLI binary missing. Reinstall Houston to restore the \
-                     bundled CLI."
-                        .into()
-                });
-            }
-        },
-    };
-    let mut cmd = tokio::process::Command::new(&bin);
-    cmd.env("PATH", claude_path::shell_path());
-
-    // Same HOME isolation the chat runner uses — see
-    // `houston-terminal-manager::gemini_home`. Without it, the user's
-    // accumulated `~/.gemini/GEMINI.md` memories bleed into the prompt
-    // and produce confused outputs like "Alpine.js Component Refactor"
-    // titles for Houston tasks that have nothing to do with the user's
-    // other projects.
-    let houston_data = gemini_home::houston_data_root();
-    let real_home = gemini_home::resolve_real_home()
-        .map_err(|e| format!("failed to resolve real home for gemini runtime: {e}"))?;
-    let runtime_home = gemini_home::ensure_gemini_runtime_home(&houston_data, &real_home)
-        .map_err(|e| format!("failed to prepare gemini runtime home: {e}"))?;
-    cmd.env("HOME", &runtime_home);
-    #[cfg(windows)]
-    cmd.env("USERPROFILE", &runtime_home);
-
-    // Run FROM the runtime HOME so gemini-cli's project-discovery walk
-    // finds nothing. Without setting cwd, gemini inherits the engine's
-    // cwd — which in `pnpm tauri dev` is the Houston source repo. The
-    // model then picks up signals ("houston", "vilnius" in the path)
-    // and emits titles like "Houston Vilnius CLI Development" for
-    // unrelated user prompts. The runtime HOME has no project files at
-    // all, so output depends only on the user's prompt body.
-    cmd.current_dir(&runtime_home);
-
-    inject_gemini_api_key(&mut cmd).await?;
-
-    // `--skip-trust` mirrors gemini_runner: gemini-cli's trusted-folders
-    // check otherwise refuses to run in Houston-managed workspace dirs
-    // and the call never completes. See gemini_runner::build_gemini_args.
-    cmd.arg("--output-format")
-        .arg("text")
-        .arg("--yolo")
-        .arg("--skip-trust")
-        .arg("--model")
-        .arg(model);
-    run_command(cmd, prompt, time_limit).await
 }
 
 async fn run_command(

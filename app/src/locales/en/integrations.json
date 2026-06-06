@@ -75,5 +75,14 @@
     "alreadyConnected": "Already connected",
     "connected": "Connected",
     "connect": "Connect"
+  },
+  "cloudSync": {
+    "bannerTitle": "Already connected on this computer",
+    "bannerDescription": "Copy your apps to this cloud agent in one tap. Gmail and your other apps will work without connecting again.",
+    "bannerAction": "Copy from this computer",
+    "success": "Your apps are ready in the cloud. No need to connect them again.",
+    "failed": "Could not copy Composio to the cloud",
+    "needsLocalTitle": "Sign in on this computer first",
+    "needsLocalDescription": "Open Integrations while using a local agent, sign in to Composio, then try again."
   }
 }
