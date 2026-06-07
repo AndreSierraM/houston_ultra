@@ -17,8 +17,8 @@ CREATE TABLE IF NOT EXISTS organization_members (
 CREATE TABLE IF NOT EXISTS cloud_entitlements (
     org_id UUID PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
     status TEXT NOT NULL CHECK (status IN ('active', 'past_due', 'canceled')),
-    max_cloud_agents INT NOT NULL DEFAULT 100000,
-    max_storage_gb INT NOT NULL DEFAULT 10,
+    max_cloud_agents INT NOT NULL DEFAULT 5,
+    max_storage_gb INT NOT NULL DEFAULT 50,
     max_members INT NOT NULL DEFAULT 5,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -85,9 +85,5 @@ VALUES (
 ON CONFLICT (org_id, user_id) DO NOTHING;
 
 INSERT INTO cloud_entitlements (org_id, status, max_cloud_agents, max_storage_gb, max_members)
-VALUES ('00000000-0000-0000-0000-000000000010', 'active', 100000, 10, 5)
+VALUES ('00000000-0000-0000-0000-000000000010', 'active', 5, 50, 5)
 ON CONFLICT (org_id) DO NOTHING;
-
--- Lift legacy 4-agent cap on any org still seeded at the old default. Idempotent:
--- only touches rows left at 4, safe to re-run on every boot.
-UPDATE cloud_entitlements SET max_cloud_agents = 100000 WHERE max_cloud_agents IN (4, 8);

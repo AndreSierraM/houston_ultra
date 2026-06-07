@@ -46,4 +46,12 @@ pub trait RuntimeBackend: Send + Sync {
     async fn remove(&self, agent_id: Uuid) -> anyhow::Result<()>;
 
     async fn status(&self, agent_id: Uuid) -> anyhow::Result<String>;
+
+    /// Re-create workload resources when DB runtime row exists but infra is missing.
+    async fn reconcile_workload(
+        &self,
+        agent_id: Uuid,
+        org_id: Uuid,
+        engine_token: &str,
+    ) -> anyhow::Result<()>;
 }

@@ -33,6 +33,15 @@ pub async fn ensure_agent_awake(
             agents::update_runtime_status(db, agent_id, "running").await?;
             Ok(())
         }
+        "error" => {
+            let row = agents::load_runtime_wake_row(db, agent_id).await?;
+            runtime
+                .reconcile_workload(agent_id, row.org_id, &row.engine_token)
+                .await
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+            agents::update_runtime_status(db, agent_id, "running").await?;
+            Ok(())
+        }
         other => Err(ApiError::internal(format!(
             "cloud agent {agent_id} runtime status {other} is not reachable"
         ))),

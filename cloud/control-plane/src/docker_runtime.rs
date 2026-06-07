@@ -192,10 +192,33 @@ impl RuntimeBackend for DockerRuntime {
 
     async fn status(&self, agent_id: Uuid) -> anyhow::Result<String> {
         let container = Self::container_name(agent_id);
-        let state = self
+        match self
             .docker(&["inspect", "-f", "{{.State.Status}}", &container])
-            .await?;
-        Ok(Self::map_docker_agent_status(&state))
+            .await
+        {
+            Ok(state) => Ok(Self::map_docker_agent_status(&state)),
+            Err(e) if e.to_string().contains("No such container") => Ok("error".into()),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn reconcile_workload(
+        &self,
+        agent_id: Uuid,
+        _org_id: Uuid,
+        _engine_token: &str,
+    ) -> anyhow::Result<()> {
+        let container = Self::container_name(agent_id);
+        match self
+            .docker(&["inspect", "-f", "{{.State.Status}}", &container])
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) if e.to_string().contains("No such container") => {
+                anyhow::bail!("container for agent {agent_id} not found; recreate the cloud agent")
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 

@@ -17,6 +17,26 @@ use uuid::Uuid;
 
 pub use crate::agent_access::assert_agent_access;
 
+#[derive(Debug, FromRow)]
+pub struct RuntimeWakeRow {
+    pub org_id: Uuid,
+    pub engine_token: String,
+}
+
+pub async fn load_runtime_wake_row(db: &Db, agent_id: Uuid) -> ApiResult<RuntimeWakeRow> {
+    sqlx::query_as::<_, RuntimeWakeRow>(
+        "SELECT a.org_id, r.engine_token
+         FROM cloud_agents a
+         JOIN cloud_agent_runtimes r ON r.agent_id = a.id
+         WHERE a.id = $1 AND a.deleted_at IS NULL",
+    )
+    .bind(agent_id)
+    .fetch_optional(db.pool())
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
+    .ok_or_else(|| ApiError::not_found("Runtime not provisioned"))
+}
+
 pub async fn update_runtime_status(db: &Db, agent_id: Uuid, status: &str) -> ApiResult<()> {
     let updated = sqlx::query(
         "UPDATE cloud_agent_runtimes SET status = $2, updated_at = now() WHERE agent_id = $1",
