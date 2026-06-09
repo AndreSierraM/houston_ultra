@@ -1,12 +1,9 @@
 /**
- * Picker fields used by ScheduleBuilder — time, day-of-week, day-of-month,
- * and the friendly "every N minutes/hours/days" interval picker.
+ * Picker fields used by ScheduleBuilder — time, day-of-week, day-of-month, and
+ * the "On these days" weekday multi-select. The "Repeat every N [unit]" control
+ * lives in schedule-interval-picker.tsx and reuses labelClass exported here.
  */
 import { cn } from "@houston-ai/core"
-import type { IntervalUnit } from "./schedule-interval-utils"
-import { INTERVAL_UNIT_LABELS } from "./schedule-interval-utils"
-
-const INTERVAL_UNITS: IntervalUnit[] = ["minutes", "hours", "days"]
 
 const inputClass = cn(
   "px-3 py-2 rounded-lg border border-border/20 bg-background",
@@ -14,7 +11,7 @@ const inputClass = cn(
   "focus:outline-none focus:shadow-sm transition-shadow",
 )
 
-const labelClass = "text-xs font-medium text-muted-foreground mb-1.5 block"
+export const labelClass = "text-xs font-medium text-muted-foreground mb-1.5 block"
 
 const DAYS_OF_WEEK = [
   { value: 0, label: "Sun" },
@@ -98,60 +95,68 @@ export function DayOfMonthPicker({
   )
 }
 
+// Single-letter weekday labels (Sunday-first), matching the chosen prototype.
+const WEEKDAYS_MIN = ["S", "M", "T", "W", "T", "F", "S"]
+const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+const WEEKDAY_SHORTCUTS: { label: string; days: number[] }[] = [
+  { label: "Every day", days: [0, 1, 2, 3, 4, 5, 6] },
+  { label: "Weekdays", days: [1, 2, 3, 4, 5] },
+  { label: "Weekends", days: [0, 6] },
+]
+
 /**
- * Friendly "Every [N] [minutes/hours/days]" picker — the non-technical
- * replacement for typing a raw cron expression. The count is a free-text string
- * so it can be cleared completely while typing; the builder validates it and
- * turns the interval into cron.
+ * "On these days" — multi-select weekday toggle (S M T W T F S) plus quick
+ * shortcuts, for the custom weekly schedule. Multi-select, so distinct from
+ * DayOfWeekPicker (single-day, used by the Weekly preset).
  */
-export function IntervalPicker({
-  every,
-  unit,
-  invalid,
-  onEveryChange,
-  onUnitChange,
+export function WeekdaysPicker({
+  value,
+  onChange,
 }: {
-  every: string
-  unit: IntervalUnit
-  invalid?: boolean
-  onEveryChange: (every: string) => void
-  onUnitChange: (unit: IntervalUnit) => void
+  value: number[]
+  onChange: (days: number[]) => void
 }) {
+  const toggle = (d: number) =>
+    onChange(value.includes(d) ? value.filter((x) => x !== d) : [...value, d].sort((a, b) => a - b))
   return (
     <div>
-      <label className={labelClass}>Run every</label>
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          inputMode="numeric"
-          value={every}
-          // Keep digits only so the field stays a plain whole number; an empty
-          // string is allowed (and flagged invalid) so it can be fully cleared.
-          onChange={(e) => onEveryChange(e.target.value.replace(/[^\d]/g, ""))}
-          placeholder="1"
-          className={cn(
-            inputClass,
-            "w-20",
-            invalid && "border-red-500/50",
-          )}
-        />
-        <div className="flex gap-1">
-          {INTERVAL_UNITS.map((u) => (
+      <label className={labelClass}>On these days</label>
+      <div className="flex gap-1.5">
+        {WEEKDAYS_MIN.map((label, d) => {
+          const on = value.includes(d)
+          return (
             <button
-              key={u}
-              onClick={() => onUnitChange(u)}
+              key={d}
+              type="button"
+              aria-label={WEEKDAYS_SHORT[d]}
+              aria-pressed={on}
+              onClick={() => toggle(d)}
               className={cn(
-                "h-8 px-3 rounded-lg text-xs font-medium transition-colors capitalize",
-                unit === u
+                "size-9 rounded-full text-xs font-medium transition-colors",
+                on
                   ? "bg-primary text-primary-foreground"
                   : "bg-background border border-border/20 text-muted-foreground hover:text-foreground",
               )}
             >
-              {INTERVAL_UNIT_LABELS[u]}
+              {label}
             </button>
-          ))}
-        </div>
+          )
+        })}
+      </div>
+      <div className="mt-2 flex gap-1.5">
+        {WEEKDAY_SHORTCUTS.map((s) => (
+          <button
+            key={s.label}
+            type="button"
+            onClick={() => onChange(s.days)}
+            className="h-7 rounded-full border border-border/20 bg-background px-3 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
     </div>
   )
 }
+
