@@ -7,6 +7,8 @@ mod engine_supervisor;
 mod houston_prompt;
 mod logging;
 mod notification;
+mod oauth_loopback;
+mod window_focus;
 
 use engine_supervisor::{
     resolve_engine_binary, spawn_supervisor, wait_until_healthy, EngineHandshake,
@@ -210,11 +212,7 @@ pub fn run() {
                 tracing::info!(
                     "[single-instance] secondary launch routed to primary"
                 );
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                window_focus::bring_to_front(app);
             },
         ));
     }
@@ -238,7 +236,18 @@ pub fn run() {
                 let handle = app.handle().clone();
                 app.deep_link().on_open_url(move |event| {
                     for url in event.urls() {
-                        auth::emit_deep_link(&handle, url.as_str());
+                        // Any deep link brings Houston forward — e.g. the
+                        // "Open Houston" button on the sign-in success page
+                        // (`houston://open`), or the `houston://auth-callback`
+                        // fallback when the loopback couldn't bind.
+                        window_focus::bring_to_front(&handle);
+                        // Only the OAuth callback carries a code/error for the
+                        // webview to exchange; a bare `houston://open` is
+                        // focus-only (routing it through the auth path would
+                        // surface a spurious "missing authorization code").
+                        if url.host_str() == Some("auth-callback") {
+                            auth::emit_deep_link(&handle, url.as_str());
+                        }
                     }
                 });
             }
@@ -462,6 +471,13 @@ pub fn run() {
             auth::auth_get_item,
             auth::auth_set_item,
             auth::auth_remove_item,
+            // One-shot loopback listener for the Google OAuth redirect —
+            // keeps desktop sign-in on the user's machine (no website relay,
+            // no custom-scheme dialog).
+            oauth_loopback::start_oauth_loopback,
+            // Pull the app to the foreground when a flow finishes in the
+            // browser (e.g. a Composio integration connection landing).
+            window_focus::focus_main_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -470,11 +486,7 @@ pub fn run() {
                 // App-level activation (cmd+tab, dock click, etc.)
                 tauri::RunEvent::Resumed => {
                     tracing::info!("[app] RunEvent::Resumed — bringing window to front");
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
-                    }
+                    window_focus::bring_to_front(app_handle);
                     let _ = app_handle.emit("app-activated", ());
                 }
                 tauri::RunEvent::WindowEvent {
